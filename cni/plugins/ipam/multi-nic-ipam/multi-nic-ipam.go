@@ -2,15 +2,15 @@
  * Copyright 2022- IBM Inc. All rights reserved
  * SPDX-License-Identifier: Apache2.0
  */
- 
+
 package main
 
 import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"strings"
 	"os"
+	"strings"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
@@ -26,7 +26,6 @@ const (
 	DEFAULT_INTERFACE_BLOCK = 2
 )
 
-
 // The top-level network config - IPAM plugins are passed the full configuration
 // of the calling plugin, not just the IPAM section.
 
@@ -34,10 +33,9 @@ type Net struct {
 	types.NetConf
 	Subnet         string      `json:"subnet"`
 	MasterNetAddrs []string    `json:"masterNets"`
-	Masters        []string	   `json:"masters"`
+	Masters        []string    `json:"masters"`
 	IPAM           *IPAMConfig `json:"ipam"`
 }
-
 
 type IPAMConfig struct {
 	Name           string
@@ -111,7 +109,6 @@ func LoadIPAMConfig(bytes []byte) (*IPAMConfig, string, error) {
 
 }
 
-
 func loadNetConf(bytes []byte) (*Net, string, error) {
 	n := &Net{}
 	if err := json.Unmarshal(bytes, n); err != nil {
@@ -119,7 +116,6 @@ func loadNetConf(bytes []byte) (*Net, string, error) {
 	}
 	return n, n.CNIVersion, nil
 }
-
 
 func cmdCheck(args *skel.CmdArgs) error {
 	// Get PrevResult from stdin... store in RawPrevResult
@@ -153,12 +149,11 @@ func cmdCheck(args *skel.CmdArgs) error {
 		}
 		if !subnetNet.Contains(ips.Address.IP) {
 			return fmt.Errorf("allocated ip %s is not in designated subnet %s", ips.Address.IP, n.Subnet)
-		} 
+		}
 	}
 
 	return nil
 }
-
 
 func cmdAdd(args *skel.CmdArgs) error {
 	n, confVersion, err := loadNetConf(args.StdinData)
@@ -193,7 +188,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		if len(n.Masters) == 0 {
 			return types.PrintResult(result, confVersion)
 		}
-		
+
 		// multi-nic-cni IPAM
 		hostName, err := os.Hostname()
 		if err != nil {
@@ -210,7 +205,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		for index, master := range n.Masters {
 			// find match master information and add
 			for _, ipResponse := range ipResponses {
-				if ipResponse.InterfaceName == master{
+				if ipResponse.InterfaceName == master {
 					vlanPodCIDR := fmt.Sprintf("%s/%s", ipResponse.IPAddress, ipResponse.VLANBlockSize)
 					ipVal, reservedIP, err := net.ParseCIDR(vlanPodCIDR)
 					reservedIP.IP = ipVal
@@ -234,7 +229,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 }
 
 func cmdDel(args *skel.CmdArgs) error {
-	
+
 	if args.Netns == "" {
 		return nil
 	}

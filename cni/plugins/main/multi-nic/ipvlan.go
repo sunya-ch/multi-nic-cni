@@ -2,14 +2,14 @@
  * Copyright 2022- IBM Inc. All rights reserved
  * SPDX-License-Identifier: Apache2.0
  */
- 
+
 package main
 
 import (
 	"encoding/json"
 	"fmt"
-	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/containernetworking/cni/pkg/types"
+	current "github.com/containernetworking/cni/pkg/types/100"
 )
 
 // IPVLANNetConfig defines ipvlan net config
@@ -18,23 +18,24 @@ import (
 // MTU    int    `json:"mtu"`
 type IPVLANNetConfig struct {
 	types.NetConf
-	MainPlugin             IPVLANTypeNetConf `json:"plugin"`
+	MainPlugin IPVLANTypeNetConf `json:"plugin"`
 }
 
 type IPVLANTypeNetConf struct {
 	types.NetConf
 	Master string `json:"master"`
 	Mode   string `json:"mode"`
-	MTU    int    `json:"mtu"`	
+	MTU    int    `json:"mtu"`
 }
 
 // loadIPVANConf unmarshal to IPVLANNetConfig and returns list of IPVLAN configs
-func loadIPVANConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*current.IPConfig) ([][]byte, error) {
-	confBytesArray := [][]byte{}
+func loadIPVANConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*current.IPConfig) ([]map[string][]byte, []string, error) {
+	devTypes := []string{"ipvlan"}
+	confBytesArray := []map[string][]byte{}
 
 	configInIPVLAN := &IPVLANNetConfig{}
 	if err := json.Unmarshal(bytes, configInIPVLAN); err != nil {
-		return confBytesArray, err
+		return confBytesArray, devTypes, err
 	}
 
 	// interfaces are orderly assigned from interface set
@@ -42,32 +43,36 @@ func loadIPVANConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*current
 		// add config
 		singleConfig, err := copyIPVLANConfig(configInIPVLAN.MainPlugin)
 		if err != nil {
-			return confBytesArray, err
+			return confBytesArray, devTypes, err
 		}
 		if singleConfig.CNIVersion == "" {
 			singleConfig.CNIVersion = n.CNIVersion
-		} 
+		}
 		singleConfig.Name = fmt.Sprintf("%s-%d", ifName, index)
 		singleConfig.Master = masterName
 		confBytes, err := json.Marshal(singleConfig)
 		if err != nil {
-			return confBytesArray, err
+			return confBytesArray, devTypes, err
 		}
-
 		if n.IsMultiNICIPAM {
 			// multi-NIC IPAM config
 			if index < len(ipConfigs) {
 				confBytes = injectMultiNicIPAM(confBytes, ipConfigs, index)
-				confBytesArray = append(confBytesArray, confBytes)
-			}	
+				confBytesMap := map[string][]byte{
+					"ipvlan": confBytes,
+				}
+				confBytesArray = append(confBytesArray, confBytesMap)
+			}
 		} else {
 			confBytes = injectSingleNicIPAM(confBytes, bytes)
-			confBytesArray = append(confBytesArray, confBytes)
+			confBytesMap := map[string][]byte{
+				"ipvlan": confBytes,
+			}
+			confBytesArray = append(confBytesArray, confBytesMap)
 		}
 	}
-	return confBytesArray, nil
+	return confBytesArray, devTypes, nil
 }
-
 
 // copyIPVLANConfig makes a copy of base IPVLAN config
 func copyIPVLANConfig(original IPVLANTypeNetConf) (*IPVLANTypeNetConf, error) {

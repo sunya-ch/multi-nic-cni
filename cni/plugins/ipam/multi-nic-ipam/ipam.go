@@ -2,7 +2,7 @@
  * Copyright 2022- IBM Inc. All rights reserved
  * SPDX-License-Identifier: Apache2.0
  */
- 
+
 package main
 
 import (
@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	ALLOCATE_PATH       = "allocate"
-	DEALLOCATE_PATH     = "deallocate"
+	ALLOCATE_PATH   = "allocate"
+	DEALLOCATE_PATH = "deallocate"
 
 	DEFAULT_DAEMON_PORT = 11000
 
@@ -80,9 +80,7 @@ func RequestIP(daemonIP string, daemonPort int, podName string, podNamespace str
 	}
 }
 
-
-
-func Deallocate(daemonPort int, podName string, podNamespace string, hostName string, defName string) (error) {
+func Deallocate(daemonPort int, podName string, podNamespace string, hostName string, defName string) error {
 	if daemonPort == 0 {
 		daemonPort = DEFAULT_DAEMON_PORT
 	}

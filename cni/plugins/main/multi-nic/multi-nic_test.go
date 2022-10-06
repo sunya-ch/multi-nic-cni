@@ -3,26 +3,25 @@
  * SPDX-License-Identifier: Apache2.0
  */
 
-// note: 
+// note:
 // no route to host error: check if veth interface (172.168.17.2) is properly removed
 
 package main
 
 import (
-	"time"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
+	"net/http"
 	"os"
 	"strings"
-	"syscall"
 	"sync"
-	"net/http"
-	"log"
+	"syscall"
+	"time"
 
-	
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/020"
@@ -33,13 +32,12 @@ import (
 
 	"github.com/containernetworking/plugins/pkg/ip"
 
-	"github.com/vishvananda/netlink"
 	"github.com/gorilla/mux"
-	
+	"github.com/vishvananda/netlink"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
-
 
 type IPRequest struct {
 	PodName          string   `json:"pod"`
@@ -75,7 +73,6 @@ var POOL_MASTER_NAMES = []string{"eth0", "eth1", "eth2"}
 var POOL_NETWORK_ADDRESSES = []string{"10.244.0.0/24", "10.244.1.0/24", "10.244.2.0/24"}
 var POOL_IP_ADDRESSES = []string{"10.244.0.120/24", "10.244.1.5/24", "10.244.2.1/24"}
 
-
 var MASTER_NAMES = []string{"eth0", "eth1"}
 var NETWORK_ADDRESSES = []string{"10.244.0.0/24", "10.244.1.0/24"}
 var IP_ADDRESSES = []string{"10.244.0.120/24", "10.244.1.5/24"}
@@ -85,8 +82,8 @@ var BRIDGE_HOST_IP = "172.168.17.2"
 var daemonPort int
 
 const (
-	ALLOCATE_PATH       = "allocate"
-	DEALLOCATE_PATH     = "deallocate"
+	ALLOCATE_PATH   = "allocate"
+	DEALLOCATE_PATH = "deallocate"
 )
 
 func buildOneConfig(cniVersion string, orig *NetConf, prevResult types.Result) (*NetConf, error) {
@@ -228,6 +225,10 @@ func multinicAddCheckDelTest(conf, masterName string, originalNS, targetNS ns.Ne
 	Expect(err).NotTo(HaveOccurred())
 }
 
+func generateConfigTest(conf, masterName string) {
+
+}
+
 type tester interface {
 	// verifyResult minimally verifies the Result and returns the interface's MAC address
 	verifyResult(result types.Result, name string) string
@@ -360,7 +361,7 @@ var _ = Describe("Operations", func() {
 		hostVethLink, err := netlink.LinkByName(hostVethName)
 		bridgeAddress, err := netlink.ParseAddr(BRIDGE_HOST_IP + "/24")
 		netlink.AddrAdd(hostVethLink, bridgeAddress)
-		Expect(err).NotTo(HaveOccurred())	
+		Expect(err).NotTo(HaveOccurred())
 
 		// Start Daemon server
 		httpServerExitDone.Add(1)
@@ -377,12 +378,12 @@ var _ = Describe("Operations", func() {
 
 		Expect(targetNS.Close()).To(Succeed())
 		Expect(testutils.UnmountNS(targetNS)).To(Succeed())
-		
+
 	})
 
-//	for _, ver := range testutils.AllSpecVersions {
-		// Redefine ver inside for scope so real value is picked up by each dynamically defined It()
-		// See Gingkgo's "Patterns for dynamically generating tests" documentation.
+	//	for _, ver := range testutils.AllSpecVersions {
+	// Redefine ver inside for scope so real value is picked up by each dynamically defined It()
+	// See Gingkgo's "Patterns for dynamically generating tests" documentation.
 	for _, ver := range []string{"0.3.0"} {
 		ver := ver
 		masterNetsBytes, _ := json.Marshal(POOL_NETWORK_ADDRESSES)
@@ -403,17 +404,71 @@ var _ = Describe("Operations", func() {
 				},
 			"multiNICIPAM": true,
 			`, BRIDGE_HOST_IP, daemonPort)
-			conf := getConfig(ver, multiNICIPAM, masterNets)
+			conf := genIPVLANL3Config(ver, multiNICIPAM, masterNets)
 			multinicAddCheckDelTest(conf, "", originalNS, targetNS)
 		})
 		It(fmt.Sprintf("[%s] configures and deconfigures link with ADD/DEL (single-nic IPAM)", ver), func() {
-			conf := getConfig(ver, singleNICIPAM, masterNets)
+			conf := genIPVLANL3Config(ver, singleNICIPAM, masterNets)
 			multinicAddCheckDelTest(conf, "", originalNS, targetNS)
 		})
 	}
+
+	It("generate other plugin configs with host local ipam", func() {
+		masterNetsBytes, _ := json.Marshal(POOL_NETWORK_ADDRESSES)
+		masterNets := string(masterNetsBytes)
+		_ = originalNS.Do(func(ns.NetNS) error {
+			// sriov
+			pluginValue := fmt.Sprintf(`{
+				"cniVersion":  "0.3.0",
+				"type": "sriov",
+				"deviceID": ""
+			}`)
+			conf, n := genConfigWithHostLocal(pluginValue, masterNets)
+			confBytesArray, devTypes, err := loadSRIOVConf(conf, "net1", n, []*types100.IPConfig{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(confBytesArray)).NotTo(Equal(0))
+			for _, confBytesMap := range confBytesArray {
+				for _, devType := range devTypes {
+					_, ok := confBytesMap[devType]
+					Expect(ok).To(Equal(true))
+				}
+			}
+			//aws-cni
+			pluginValue = fmt.Sprintf(`{
+				"name": "egress-v4-cni",
+				"type": "egress-v4-cni",
+				"mtu": "9001",
+				"egressMtu": 9001
+			}`)
+			conf, n = genConfigWithHostLocal(pluginValue, masterNets)
+			confBytesArray, devTypes, err = loadAWSCNIConf(conf, "net1", n, []*types100.IPConfig{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(confBytesArray)).NotTo(Equal(0))
+
+			for _, confBytesMap := range confBytesArray {
+				var prevResult *types100.Result
+				for _, devType := range devTypes {
+					confBytes, ok := confBytesMap[devType]
+					Expect(ok).To(Equal(true))
+					if prevResult != nil {
+						confBytes, err = injectPrevResults(confBytes, *prevResult)
+						Expect(err).NotTo(HaveOccurred())
+						fmt.Println(string(confBytes))
+					} else {
+						fmt.Println(string(confBytes))
+					}
+					dummyResult := &types100.Result{
+						IPs: []*types100.IPConfig{&types100.IPConfig{Address: net.IPNet{IP: []byte("0.0.0.0")}}},
+					}
+					prevResult = dummyResult
+				}
+			}
+			return nil
+		})
+	})
 })
 
-func getConfig(ver, ipamValue, masterNets string) string {
+func genIPVLANL3Config(ver, ipamValue, masterNets string) string {
 	return fmt.Sprintf(`{ 
 		"cniVersion": "0.3.0", 
 		"name": "multi-nic-sample",
@@ -432,21 +487,45 @@ func getConfig(ver, ipamValue, masterNets string) string {
 		}`, ipamValue, BRIDGE_HOST_IP, daemonPort, masterNets)
 }
 
+func genConfigWithHostLocal(mainPluginValue, masterNets string) ([]byte, *NetConf) {
+	confStr := fmt.Sprintf(`{ 
+		"cniVersion": "0.3.0", 
+		"name": "multi-nic-sample",
+		"type": "multi-nic",
+		"plugin": %s,
+		"vlanMode": "l2",
+		"ipam": {
+			"type": "host-local"
+		 },
+		"multiNICIPAM": false,
+		"daemonIP": "%s",
+		"daemonPort": %d,
+		"subnet": "192.168.0.0/16",
+		"masterNets": %s
+		}`, mainPluginValue, BRIDGE_HOST_IP, daemonPort, masterNets)
+	conf := []byte(confStr)
+	n := &NetConf{}
+	err := json.Unmarshal(conf, n)
+	n.DeviceIDs = POOL_MASTER_NAMES
+	n.Masters = POOL_MASTER_NAMES
+	Expect(err).NotTo(HaveOccurred())
+	return conf, n
+}
+
 func closeServer(srv *http.Server, httpServerExitDone *sync.WaitGroup) {
 	if err := srv.Shutdown(context.TODO()); err != nil {
-        panic(err) 
-    }
+		panic(err)
+	}
 	httpServerExitDone.Wait()
 	log.Printf("Connection closed")
 }
 
-
-func startDaemonServer(httpServerExitDone *sync.WaitGroup) *http.Server{
+func startDaemonServer(httpServerExitDone *sync.WaitGroup) *http.Server {
 	log.Printf("startDaemonServer")
 	var srv *http.Server
 	router := mux.NewRouter().StrictSlash(true)
-	router.HandleFunc("/"+ALLOCATE_PATH, 
-		func (w http.ResponseWriter, r *http.Request) {
+	router.HandleFunc("/"+ALLOCATE_PATH,
+		func(w http.ResponseWriter, r *http.Request) {
 			ioutil.ReadAll(r.Body)
 			var ipResponses []IPResponse
 			ipResponses = []IPResponse{}
@@ -461,28 +540,28 @@ func startDaemonServer(httpServerExitDone *sync.WaitGroup) *http.Server{
 			log.Printf("return responses: %v", ipResponses)
 			json.NewEncoder(w).Encode(ipResponses)
 		},
-		).Methods("POST")
-	router.HandleFunc("/"+DEALLOCATE_PATH, 
-		func (w http.ResponseWriter, r *http.Request) {
+	).Methods("POST")
+	router.HandleFunc("/"+DEALLOCATE_PATH,
+		func(w http.ResponseWriter, r *http.Request) {
 			ioutil.ReadAll(r.Body)
 			json.NewEncoder(w).Encode("")
 		},
-		).Methods("POST")
+	).Methods("POST")
 	router.HandleFunc("/"+NIC_SELECT_PATH,
-		func (w http.ResponseWriter, r *http.Request) {
+		func(w http.ResponseWriter, r *http.Request) {
 			ioutil.ReadAll(r.Body)
 			selectResponse := NICSelectResponse{
 				DeviceIDs: []string{},
-				Masters: MASTER_NAMES,
+				Masters:   MASTER_NAMES,
 			}
 			log.Printf("return responses: %v", selectResponse)
 			json.NewEncoder(w).Encode(selectResponse)
 		},
-		)
-	
+	)
+
 	// use next available portt
-	srv = &http.Server{Addr: fmt.Sprintf("%s:0", BRIDGE_HOST_IP), Handler: router} 
-	
+	srv = &http.Server{Addr: fmt.Sprintf("%s:0", BRIDGE_HOST_IP), Handler: router}
+
 	go func() {
 		defer httpServerExitDone.Done() // let main know we are done cleaning up
 		log.Printf("Server Listening")
@@ -492,7 +571,7 @@ func startDaemonServer(httpServerExitDone *sync.WaitGroup) *http.Server{
 			addr = ":http"
 		}
 		ln, err := net.Listen("tcp", addr)
-		Expect(err).NotTo(HaveOccurred())	
+		Expect(err).NotTo(HaveOccurred())
 		daemonPort = ln.Addr().(*net.TCPAddr).Port
 
 		// always returns error. ErrServerClosed on graceful close

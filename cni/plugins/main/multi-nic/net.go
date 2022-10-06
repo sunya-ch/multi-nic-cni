@@ -2,12 +2,12 @@
  * Copyright 2022- IBM Inc. All rights reserved
  * SPDX-License-Identifier: Apache2.0
  */
- 
+
 package main
 
 import (
-	"strings"
 	"net"
+	"strings"
 )
 
 // getInterfaceNameFromNetAddress returns container interface name from net address
@@ -66,5 +66,3 @@ func getNetAddress(v *net.IPNet) string {
 	ip := v.IP.Mask(v.Mask).String()
 	return ip + "/" + blockSize
 }
-
-
