@@ -1,21 +1,22 @@
 package router
 
 import (
-	"os"
-	"io/ioutil"
-	"github.com/vishvananda/netlink"
-	"log"
 	"bufio"
-	"strings"
-	"sort"
-	"strconv"
-	"net"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"net"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/vishvananda/netlink"
 )
 
 const (
-	MIX_TABLE_INDEX = 100
+	MIX_TABLE_INDEX       = 100
 	DEFAULT_RT_TABLE_PATH = "/etc/iproute2/rt_tables"
 )
 
@@ -42,7 +43,7 @@ func GetTableID(tableName string, subnet string, addIfNotExists bool) (int, erro
 			// delete existing rule
 			deleteRule(foundID)
 			err = addRule(subnet, foundID)
-		} 
+		}
 	}
 	if foundID != -1 && !isRuleExist(foundID) {
 		err = addRule(subnet, foundID)
@@ -71,9 +72,12 @@ func DeleteTable(tableName string, tableID int) error {
 }
 
 func addRule(subnet string, tableID int) error {
+	if tableID == -1 {
+		return errors.New("add rule tableID = -1")
+	}
 	_, src, _ := net.ParseCIDR(subnet)
 	rule := netlink.NewRule()
-	rule.Src =  src
+	rule.Src = src
 	rule.Table = tableID
 	err := netlink.RuleAdd(rule)
 	log.Printf("add rule %v:%v", rule, err)
@@ -112,7 +116,7 @@ func getTableID(tableName string) int {
 					return int(tableID)
 				}
 				return -1
-			} 
+			}
 		}
 	}
 	return -1
@@ -156,7 +160,7 @@ func addTable(tableName string, reservedIDs []int) (int, error) {
 	sort.Ints(reservedIDs)
 	// 2. find available ID
 	for index, tableID := range reservedIDs {
-		if index + MIX_TABLE_INDEX != tableID {
+		if index+MIX_TABLE_INDEX != tableID {
 			foundID = index + MIX_TABLE_INDEX
 			break
 		}
@@ -167,19 +171,21 @@ func addTable(tableName string, reservedIDs []int) (int, error) {
 			defer file.Close()
 			_, err = file.WriteString(getTableLine(foundID, tableName))
 		}
-		return foundID, err
+		return foundID, fmt.Errorf("failed to add table: %v (%s)", err, RT_TABLE_PATH)
 	}
 	return foundID, errors.New("No available ID")
 }
 
 func deleteRule(tableID int) error {
+	if tableID == -1 {
+		return errors.New("delete rule tableID = -1")
+	}
 	rule := netlink.NewRule()
 	rule.Table = tableID
 	err := netlink.RuleDel(rule)
 	log.Printf("delete rule %v:%v", rule, err)
 	return err
 }
-
 
 func deleteRoutes(tableID int) error {
 	routes, err := GetRoutes(tableID)
@@ -192,13 +198,12 @@ func deleteRoutes(tableID int) error {
 			err = netlink.RouteDel(&route)
 			if err == nil {
 				deletedNRoute += 1
-			} 
+			}
 		}
 	}
 	log.Printf("delete %d of %d routes from table %d", deletedNRoute, len(routes), tableID)
 	return nil
 }
-
 
 func getTableLine(tableID int, tableName string) string {
 	return fmt.Sprintf("%d\t%s\n", tableID, tableName)

@@ -294,7 +294,7 @@ func CleanHangingAllocation(hostName string) error {
 	}
 	for ippoolName, _ := range ippoolSpecMap {
 		spec := ippoolSpecMap[ippoolName]
-		if spec.HostName == hostName {
+		if strings.Contains(spec.HostName, hostName) {
 			allocations := spec.Allocations
 			remains := []backend.Allocation{}
 			for _, allocation := range allocations {
@@ -336,7 +336,7 @@ func DeallocateIP(req IPRequest) []IPResponse {
 	}
 	for ippoolName, _ := range ippoolSpecMap {
 		spec := ippoolSpecMap[ippoolName]
-		if spec.NetAttachDefName == defName && spec.HostName == hostName {
+		if spec.NetAttachDefName == defName && strings.Contains(spec.HostName, hostName) {
 			allocations := spec.Allocations
 
 			for index, allocation := range allocations {
