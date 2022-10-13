@@ -168,7 +168,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 						return err
 					}
 				}
-				executeResult, err := execPlugin(deviceType, command, confBytes, args, ifName, true)
+				executeResult, err := execPlugin(devType, command, confBytes, args, ifName, true)
 				if err != nil {
 					return err
 				}
