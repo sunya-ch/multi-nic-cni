@@ -63,6 +63,8 @@ type AWSChainedCNITypeNetConf struct {
 
 	PluginLogFile  string `json:"pluginLogFile"`
 	PluginLogLevel string `json:"pluginLogLevel"`
+	EgressPluginLogFile  string `json:"egressPluginLogFile"`
+	EgressPluginLogLevel string `json:"egressPluginLogLevel"`
 }
 
 type AWSCNITypeNetConf struct {
@@ -186,8 +188,8 @@ func getAWSChainedCNIConfig(original AWSChainedCNITypeNetConf) (*AWSCNITypeNetCo
 		MTU:            original.EgressMTU,
 		Enabled:        original.Enabled,
 		RandomizeSNAT:  original.RandomizeSNAT,
-		PluginLogFile:  original.PluginLogFile,
-		PluginLogLevel: original.PluginLogLevel,
+		PluginLogFile:  original.EgressPluginLogFile,
+		PluginLogLevel: original.EgressPluginLogLevel,
 	}
 	egressCNIConfig.Type = "egress-v4-cni"
 	return awsCNIConfig, egressCNIConfig, nil
