@@ -10,9 +10,15 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
+	"github.com/containernetworking/plugins/pkg/utils"
 )
 
 func TestMultiNic(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "MultiNic Suite")
 }
+
+var _ = BeforeSuite(func() {
+	utils.InitializeLogger()
+})

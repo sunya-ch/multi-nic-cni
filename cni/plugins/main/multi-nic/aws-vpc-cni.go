@@ -127,22 +127,17 @@ func loadAWSCNIConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*curren
 
 	configInAWSCNI := &AWSCNINetConfig{}
 	if err := json.Unmarshal(bytes, configInAWSCNI); err != nil {
-		fmt.Println(err)
 		return confBytesArray, devTypes, err
 	}
-	fmt.Println(n.Masters)
 	// interfaces are orderly assigned from interface set
 	for _, masterName := range n.Masters {
 		nodeIP := getHostIP(masterName)
 		if nodeIP == nil {
-			fmt.Println("cannot get nodeIP")
 			continue
 		}
-		fmt.Println(nodeIP.To4())
 		// add config
 		awsCNIConfig, egressCNIConfig, err := getAWSChainedCNIConfig(configInAWSCNI.MainPlugin)
 		if err != nil {
-			fmt.Println(err)
 			return confBytesArray, devTypes, err
 		}
 		if awsCNIConfig.CNIVersion == "" {
@@ -153,12 +148,10 @@ func loadAWSCNIConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*curren
 		egressCNIConfig.NodeIP = nodeIP
 		awsCNIConfBytes, err := json.Marshal(awsCNIConfig)
 		if err != nil {
-			fmt.Println(err)
 			return confBytesArray, devTypes, err
 		}
 		egressCNIConfBytes, err := json.Marshal(egressCNIConfig)
 		if err != nil {
-			fmt.Println(err)
 			return confBytesArray, devTypes, err
 		}
 		egressCNIConfBytes = injectSingleNicIPAM(egressCNIConfBytes, bytes)
@@ -167,7 +160,6 @@ func loadAWSCNIConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*curren
 			"egress-v4-cni": egressCNIConfBytes,
 		}
 		confBytesArray = append(confBytesArray, confBytesMap)
-
 	}
 	return confBytesArray, devTypes, nil
 }

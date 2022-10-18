@@ -19,6 +19,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/ipam"
 	"github.com/containernetworking/plugins/pkg/ns"
 	bv "github.com/containernetworking/plugins/pkg/utils/buildversion"
+	"github.com/containernetworking/plugins/pkg/utils"
 )
 
 const (
@@ -53,6 +54,7 @@ type NicArgs struct {
 }
 
 func main() {
+	utils.InitializeLogger()
 	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("multi-nic"))
 }
 
@@ -62,6 +64,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	if err != nil {
 		return fmt.Errorf("failed to load netconf: %v", err)
 	}
+	utils.Logger.Debug(fmt.Sprintf("Received an ADD request for: conf=%v", n))
 
 	// open specified network namespace
 	netns, err := ns.GetNS(args.Netns)
@@ -93,6 +96,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	if !haveResult && n.IsMultiNICIPAM {
+		utils.Logger.Debug("Calling MultiNICIPAM")
 		// run the IPAM plugin and get back the config to apply
 		injectedStdIn := injectMaster(args.StdinData, n.MasterNetAddrs, n.Masters, n.DeviceIDs)
 		r, err := ipam.ExecAdd(n.IPAM.Type, injectedStdIn)
@@ -196,6 +200,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 	}
 	result.IPs = ips
+	utils.Logger.Debug(fmt.Sprintf("Result: %v", result))
 	return types.PrintResult(result, n.CNIVersion)
 }
 
