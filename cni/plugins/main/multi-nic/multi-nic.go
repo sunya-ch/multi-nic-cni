@@ -125,9 +125,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 	// get device config and apply
 	devTypes := []string{}
 	confBytesArray := []map[string][]byte{}
+	version := n.CNIVersion
 	switch deviceType {
 	case "ipvlan":
-		confBytesArray, devTypes, err = loadIPVANConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadIPVANConf(args.StdinData, args.IfName, n, result.IPs)
 
 		if err != nil {
 			return err
@@ -137,7 +138,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			return fmt.Errorf("zero config %v", n)
 		}
 	case "sriov":
-		confBytesArray, devTypes, err = loadSRIOVConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadSRIOVConf(args.StdinData, args.IfName, n, result.IPs)
 
 		if err != nil {
 			return err
@@ -147,7 +148,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			return fmt.Errorf("zero config %v", n)
 		}
 	case "aws-vpc-cni":
-		confBytesArray, devTypes, err = loadAWSCNIConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadAWSCNIConf(args.StdinData, args.IfName, n, result.IPs)
 		if err != nil {
 			return err
 		}
@@ -163,20 +164,22 @@ func cmdAdd(args *skel.CmdArgs) error {
 	for index, confBytesMap := range confBytesArray {
 		command := "ADD"
 		ifName := fmt.Sprintf("%s-%d", args.IfName, index)
-		var prevResult *current.Result
+		var prevResult *types.Result
 		for _, devType := range devTypes {
 			if confBytes, ok := confBytesMap[devType]; ok {
 				if prevResult != nil {
+					utils.Logger.Debug(fmt.Sprintf("prevResult: %v", prevResult))
 					confBytes, err = injectPrevResults(confBytes, *prevResult)
 					if err != nil {
 						return err
 					}
 				}
-				executeResult, err := execPlugin(devType, command, confBytes, args, ifName, true)
+				executeResult, err := execPlugin(version, devType, command, confBytes, args, ifName, true)
 				if err != nil {
 					return err
 				}
-				prevResult = executeResult
+				prevResult = &executeResult
+				utils.Logger.Debug(fmt.Sprintf("config: %s", string(confBytes)))
 			} else {
 				return fmt.Errorf("%s not in confBytesArray", devType)
 			}
@@ -193,8 +196,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 			return nil
 		})
 		result.Interfaces = append(result.Interfaces, interfaceItem)
-		if prevResult != nil && len(prevResult.IPs) > 0 {
-			ipConf := prevResult.IPs[0]
+		prevResultIPs, err := getIPsFromResult(*prevResult)
+		if err == nil && len(prevResultIPs) > 0 {
+			ipConf := prevResultIPs[0]
 			ipConf.Interface = current.Int(index)
 			ips = append(ips, ipConf)
 		}
@@ -241,19 +245,20 @@ func cmdDel(args *skel.CmdArgs) error {
 	// get device config and apply
 	devTypes := []string{}
 	confBytesArray := []map[string][]byte{}
+	version := n.CNIVersion
 	switch deviceType {
 	case "ipvlan":
-		confBytesArray, devTypes, err = loadIPVANConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadIPVANConf(args.StdinData, args.IfName, n, result.IPs)
 		if err != nil {
 			return err
 		}
 	case "sriov":
-		confBytesArray, devTypes, err = loadSRIOVConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadSRIOVConf(args.StdinData, args.IfName, n, result.IPs)
 		if err != nil {
 			return err
 		}
 	case "aws-vpc-cni":
-		confBytesArray, devTypes, err = loadAWSCNIConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadAWSCNIConf(args.StdinData, args.IfName, n, result.IPs)
 		if err != nil {
 			return err
 		}
@@ -266,7 +271,7 @@ func cmdDel(args *skel.CmdArgs) error {
 		ifName := fmt.Sprintf("%s-%d", args.IfName, index)
 		for _, devType := range devTypes {
 			if confBytes, ok := confBytesMap[devType]; ok {
-				_, err := execPlugin(devType, command, confBytes, args, ifName, false)
+				_, err := execPlugin(version, devType, command, confBytes, args, ifName, false)
 				if err != nil {
 					return fmt.Errorf("%s, %v", string(confBytes), err)
 				}
@@ -305,20 +310,21 @@ func cmdCheck(args *skel.CmdArgs) error {
 	// get device config and apply
 	devTypes := []string{}
 	confBytesArray := []map[string][]byte{}
+	version := n.CNIVersion
 	switch deviceType {
 	case "ipvlan":
-		confBytesArray, devTypes, err = loadIPVANConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadIPVANConf(args.StdinData, args.IfName, n, result.IPs)
 		if err != nil {
 			return err
 		}
 
 	case "sriov":
-		confBytesArray, devTypes, err = loadSRIOVConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadSRIOVConf(args.StdinData, args.IfName, n, result.IPs)
 		if err != nil {
 			return err
 		}
 	case "aws-vpc-cni":
-		confBytesArray, devTypes, err = loadAWSCNIConf(args.StdinData, args.IfName, n, result.IPs)
+		version, confBytesArray, devTypes, err = loadAWSCNIConf(args.StdinData, args.IfName, n, result.IPs)
 		if err != nil {
 			return err
 		}
@@ -331,7 +337,7 @@ func cmdCheck(args *skel.CmdArgs) error {
 		ifName := fmt.Sprintf("%s-%d", args.IfName, index)
 		for _, devType := range devTypes {
 			if confBytes, ok := confBytesMap[devType]; ok {
-				_, err := execPlugin(devType, command, confBytes, args, ifName, false)
+				_, err := execPlugin(version, devType, command, confBytes, args, ifName, false)
 				if err != nil {
 					return fmt.Errorf("%s, %v", string(confBytes), err)
 				}

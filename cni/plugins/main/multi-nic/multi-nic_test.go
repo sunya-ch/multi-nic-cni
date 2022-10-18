@@ -424,7 +424,7 @@ var _ = Describe("Operations", func() {
 				"deviceID": ""
 			}`)
 			conf, n := genConfigWithHostLocal(pluginValue, masterNets)
-			confBytesArray, devTypes, err := loadSRIOVConf(conf, "net1", n, []*types100.IPConfig{})
+			_, confBytesArray, devTypes, err := loadSRIOVConf(conf, "net1", n, []*types100.IPConfig{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(confBytesArray)).NotTo(Equal(0))
 			for _, confBytesMap := range confBytesArray {
@@ -441,23 +441,24 @@ var _ = Describe("Operations", func() {
 				"egressMtu": 9001
 			}`)
 			conf, n = genConfigWithHostLocal(pluginValue, masterNets)
-			confBytesArray, devTypes, err = loadAWSCNIConf(conf, "net1", n, []*types100.IPConfig{})
+			_, confBytesArray, devTypes, err = loadAWSCNIConf(conf, "net1", n, []*types100.IPConfig{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(confBytesArray)).NotTo(Equal(0))
 
 			for _, confBytesMap := range confBytesArray {
-				var prevResult *types100.Result
+				var prevResult types.Result
 				for _, devType := range devTypes {
 					confBytes, ok := confBytesMap[devType]
 					Expect(ok).To(Equal(true))
 					if prevResult != nil {
-						confBytes, err = injectPrevResults(confBytes, *prevResult)
+						confBytes, err = injectPrevResults(confBytes, prevResult)
 						Expect(err).NotTo(HaveOccurred())
 						fmt.Println(string(confBytes))
 					} else {
 						fmt.Println(string(confBytes))
 					}
-					dummyResult := &types100.Result{
+					var dummyResult types.Result
+					dummyResult = &types100.Result{
 						IPs: []*types100.IPConfig{&types100.IPConfig{Address: net.IPNet{IP: []byte("0.0.0.0")}}},
 					}
 					prevResult = dummyResult

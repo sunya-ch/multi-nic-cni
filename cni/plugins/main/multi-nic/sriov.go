@@ -35,29 +35,31 @@ type SriovNetConf struct {
 }
 
 // loadSRIOVConf unmarshal to SRIOVNetConfig and returns list of SR-IOV configs
-func loadSRIOVConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*current.IPConfig) ([]map[string][]byte, []string, error) {
+func loadSRIOVConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*current.IPConfig) (string, []map[string][]byte, []string, error) {
 	devTypes := []string{"sriov"}
 	confBytesArray := []map[string][]byte{}
+	version := n.CNIVersion
 
 	configInSRIOV := SRIOVNetConfig{}
 	if err := json.Unmarshal(bytes, &configInSRIOV); err != nil {
-		return confBytesArray, devTypes, err
+		return version, confBytesArray, devTypes, err
 	}
 	// interfaces are orderly assigned from interface set
 	for index, deviceID := range n.DeviceIDs {
 		// add config
 		singleConfig, err := copySRIOVconfig(configInSRIOV.MainPlugin)
 		if err != nil {
-			return confBytesArray, devTypes, err
+			return version, confBytesArray, devTypes, err
 		}
 		if singleConfig.CNIVersion == "" {
 			singleConfig.CNIVersion = n.CNIVersion
 		}
+		version = singleConfig.CNIVersion
 		singleConfig.Name = fmt.Sprintf("%s-%d", ifName, index)
 		singleConfig.DeviceID = deviceID
 		confBytes, err := json.Marshal(singleConfig)
 		if err != nil {
-			return confBytesArray, devTypes, err
+			return version, confBytesArray, devTypes, err
 		}
 		if n.IsMultiNICIPAM {
 			// multi-NIC IPAM config
@@ -76,7 +78,7 @@ func loadSRIOVConf(bytes []byte, ifName string, n *NetConf, ipConfigs []*current
 			confBytesArray = append(confBytesArray, confBytesMap)
 		}
 	}
-	return confBytesArray, devTypes, nil
+	return version, confBytesArray, devTypes, nil
 }
 
 // copySRIOVconfig makes a copy of base SR-IOV config

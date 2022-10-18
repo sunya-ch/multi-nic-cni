@@ -10,7 +10,11 @@ import (
 	"strings"
 
 	"fmt"
-	current "github.com/containernetworking/cni/pkg/types/100"
+
+	"github.com/containernetworking/cni/pkg/types"
+	"github.com/containernetworking/cni/pkg/types/020"
+	"github.com/containernetworking/cni/pkg/types/040"
+	"github.com/containernetworking/cni/pkg/types/100"
 )
 
 // getPodInfo extracts pod Name and Namespace from cniArgs
@@ -30,7 +34,7 @@ func getPodInfo(cniArgs string) (string, string) {
 
 // injectIPAM injects ipam bytes to config
 
-func injectMultiNicIPAM(singleNicConfBytes []byte, ipConfigs []*current.IPConfig, ipIndex int) []byte {
+func injectMultiNicIPAM(singleNicConfBytes []byte, ipConfigs []*types100.IPConfig, ipIndex int) []byte {
 	return replaceMultiNicIPAM(singleNicConfBytes, ipConfigs[ipIndex])
 }
 func injectSingleNicIPAM(singleNicConfBytes []byte, multiNicConfBytes []byte) []byte {
@@ -51,7 +55,7 @@ func replaceSingleNicIPAM(singleNicConfBytes []byte, multiNicConfBytes []byte) [
 	return []byte(injectedStr)
 }
 
-func replaceMultiNicIPAM(singleNicConfBytes []byte, ipConfig *current.IPConfig) []byte {
+func replaceMultiNicIPAM(singleNicConfBytes []byte, ipConfig *types100.IPConfig) []byte {
 	confStr := string(singleNicConfBytes)
 	singleIPAM := fmt.Sprintf("\"ipam\":{\"type\":\"static\",\"addresses\":[{\"address\":\"%s\"}]}", ipConfig.Address.String())
 	injectedStr := strings.ReplaceAll(confStr, "\"ipam\":{}", singleIPAM)
@@ -70,10 +74,30 @@ func injectMaster(inData []byte, selectedNetAddrs []string, selectedMasters []st
 }
 
 // injectPrevResult replaces prevResult
-func injectPrevResults(inData []byte, prevResult current.Result) ([]byte, error) {
+func injectPrevResults(inData []byte, prevResult types.Result) ([]byte, error) {
 	var obj map[string]interface{}
 	json.Unmarshal(inData, &obj)
 	obj["prevResult"] = prevResult
 	outBytes, err := json.Marshal(obj)
 	return outBytes, err
+}
+
+func newResultFromResult(version string, r types.Result) (types.Result, error) {
+	switch {
+	case strings.HasPrefix(version, "1.0."):
+		return types100.NewResultFromResult(r)
+	case strings.HasPrefix(version, "0.4.") || strings.HasPrefix(version, "0.3."):
+		return types040.NewResultFromResult(r)
+	case strings.HasPrefix(version, "0.1.") || strings.HasPrefix(version, "0.2."):
+		return types020.GetResult(r)
+	}
+	return nil, fmt.Errorf("unsupported config version %s", version)
+}
+
+func getIPsFromResult(r types.Result) ([]*types100.IPConfig, error) {
+	newResult, err := types100.NewResultFromResult(r)
+	if err != nil {
+		return []*types100.IPConfig{}, err
+	}
+	return newResult.IPs, nil
 }

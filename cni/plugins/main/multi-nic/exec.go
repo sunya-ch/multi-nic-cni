@@ -12,14 +12,14 @@ import (
 	"os"
 	"path/filepath"
 
-	current "github.com/containernetworking/cni/pkg/types/100"
+	"github.com/containernetworking/cni/pkg/types"
 )
 
 var defaultExec = &invoke.DefaultExec{
 	RawExec: &invoke.RawExec{Stderr: os.Stderr},
 }
 
-func execPlugin(plugin string, command string, confBytes []byte, args *skel.CmdArgs, ifName string, isAdd bool) (*current.Result, error) {
+func execPlugin(version string, plugin string, command string, confBytes []byte, args *skel.CmdArgs, ifName string, isAdd bool) (types.Result, error) {
 	cniPath := os.Getenv("CNI_PATH")
 	singleNicArgs := &invoke.Args{
 		Command:       command,
@@ -40,7 +40,7 @@ func execPlugin(plugin string, command string, confBytes []byte, args *skel.CmdA
 		if err != nil {
 			return nil, err
 		}
-		return current.NewResultFromResult(r)
+		return newResultFromResult(version, r)
 	} else {
 		err = invoke.ExecPluginWithoutResult(context.TODO(), pluginPath, confBytes, singleNicArgs, defaultExec)
 		return nil, err
