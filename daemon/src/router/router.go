@@ -111,7 +111,7 @@ func AddRoute(r *http.Request) RouteUpdateResponse {
 				res_msg += fmt.Sprintf("AddRouteError %v;", err)
 				success = false
 			} else {
-				res_msg += fmt.Sprintf("Add route %s;", route.String())
+				log.Printf("Successfully add route %s", route.String())
 				success = true
 			}
 		} else {
@@ -165,7 +165,7 @@ func isRouteExist(cmpRoute netlink.Route, dev netlink.Link) (bool, error) {
 		return false, err
 	}
 	for _, route := range routes {
-		if route.Gw != nil && cmpRoute.Gw != nil && route.Dst != nil && cmpRoute.Dst != nil {
+		if route.Gw != nil && cmpRoute.Gw != nil {
 			if route.Dst.String() == cmpRoute.Dst.String() && route.Gw.String() == cmpRoute.Gw.String() {
 				return true, nil
 			}
