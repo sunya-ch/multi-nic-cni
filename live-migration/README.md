@@ -35,7 +35,7 @@ To reinstall/upgrade multi-nic-cni-operator without affecting workloads running 
     ```bash
     ./live_migrate.sh uninstall_operator
     ```
-    For OperatorSDK, run `operator-sdk cleanup --delete-all`<br>
+    For OperatorSDK, run `kubectl delete multinicnetwork --all;kubectl delete cidr --all;operator-sdk cleanup multi-nic-cni-operator --delete-all`<br>
     Wait until all multi-nicd daemon is terminated<br>
     ```bash
     watch kubectl get po -n openshift-operators
