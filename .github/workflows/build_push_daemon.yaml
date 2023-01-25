@@ -27,6 +27,8 @@ jobs:
         working-directory: daemon
       - name: Set up Docker
         uses: docker/setup-buildx-action@v1
+      - name: Test
+        run: make test-daemon
       - name: Login to Docker
         uses: docker/login-action@v1
         with:

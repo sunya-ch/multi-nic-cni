@@ -1,0 +1,31 @@
+FROM ubuntu:20.04
+
+RUN  apt-get update \
+  && apt-get install -y wget tar build-essential net-tools iproute2 git curl \
+  && rm -rf /var/lib/apt/lists/*
+
+# install go
+RUN wget https://golang.org/dl/go1.17.linux-amd64.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf go1.17.linux-amd64.tar.gz
+ENV PATH "/usr/local/go/bin:${PATH}"
+RUN mkdir -p /usr/local/app
+RUN mkdir -p /usr/local/build
+RUN mkdir -p /host/opt/cni/bin
+WORKDIR /usr/local/build
+RUN curl -sSLo kubebuilder_2.0.0-alpha.1_linux_amd64.tar.gz https://github.com/kubernetes-sigs/kubebuilder/releases/download/v2.0.0-alpha.1/kubebuilder_2.0.0-alpha.1_linux_amd64.tar.gz \
+  && tar -zxvf kubebuilder_2.0.0-alpha.1_linux_amd64.tar.gz
+RUN curl -sSLo setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.7.2/hack/setup-envtest.sh
+COPY daemon daemon
+RUN mkdir -p daemon/src/test-bin
+RUN mv kubebuilder_2.0.0-alpha.1_linux_amd64 daemon/src/test-bin/kubebuilder && mv setup-envtest.sh daemon/src/test-bin/setup-envtest.sh
+RUN cd daemon/src && go mod tidy 
+COPY cni cni
+RUN cd cni && go mod tidy 
+RUN cd cni && go build -o /usr/local/app/multi-nic ./plugins/main/multi-nic \
+ && go build -o /usr/local/app/multi-nic-ipam ./plugins/ipam/multi-nic-ipam
+RUN cd cni && make ginkgo-set && make plugins-set
+RUN cd daemon/src && go build -o /usr/local/app/daemon
+RUN cp /usr/local/app/multi-nic /usr/local/bin \ 
+&& cp /usr/local/app/multi-nic-ipam /usr/local/bin
+WORKDIR /usr/local/app
+COPY daemon/run.sh run.sh
+CMD ["/bin/bash", "run.sh"]
