@@ -18,14 +18,22 @@ COPY daemon daemon
 RUN mkdir -p daemon/src/test-bin
 RUN mv kubebuilder_2.0.0-alpha.1_linux_amd64 daemon/src/test-bin/kubebuilder && mv setup-envtest.sh daemon/src/test-bin/setup-envtest.sh
 RUN cd daemon/src && go mod tidy 
-COPY cni cni
-RUN cd cni && go mod tidy 
-RUN cd cni && go build -o /usr/local/app/multi-nic ./plugins/main/multi-nic \
- && go build -o /usr/local/app/multi-nic-ipam ./plugins/ipam/multi-nic-ipam
-RUN cd cni && make ginkgo-set && make plugins-set
+RUN mkdir -p cni
+COPY cni/go.mod cni/go.mod
+COPY cni/Makefile cni/Makefile
+RUN cd cni && make plugins-set
+COPY cni/pkg cni/pkg
+COPY cni/plugins/main/multi-nic cni/plugins/main/multi-nic
+RUN cd cni && go mod tidy && go build -o /usr/local/app/multi-nic ./plugins/main/multi-nic
+COPY cni/plugins/ipam cni/plugins/ipam
+RUN cd cni && go mod tidy && go build -o /usr/local/app/multi-nic-ipam ./plugins/ipam/multi-nic-ipam
+COPY cni/plugins/main/aws-ipvlan cni/plugins/main/aws-ipvlan
+RUN cd cni && go mod tidy && go build -o /usr/local/app/aws-ipvlan ./plugins/main/aws-ipvlan
+RUN cd cni && make ginkgo-set
 RUN cd daemon/src && go build -o /usr/local/app/daemon
 RUN cp /usr/local/app/multi-nic /usr/local/bin \ 
-&& cp /usr/local/app/multi-nic-ipam /usr/local/bin
+&& cp /usr/local/app/multi-nic-ipam /usr/local/bin \
+&& cp /usr/local/app/aws-ipvlan /usr/local/bin
 WORKDIR /usr/local/app
 COPY daemon/run.sh run.sh
 CMD ["/bin/bash", "run.sh"]
