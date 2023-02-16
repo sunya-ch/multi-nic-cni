@@ -11,7 +11,7 @@ This test leverages [kwok](https://github.com/kubernetes-sigs/kwok) to simulate 
 ## Prepare cluster
 ```bash
 # create kind cluster with 1000 max pods
-CLUSTER_NAME=kind_1000
+export CLUSTER_NAME=kind-1000
 make create-kind
 # build and load all requried images to kind cluster
 make build-load-images

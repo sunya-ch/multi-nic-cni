@@ -41,7 +41,7 @@ controller-build-load: controller-build
 	kind load docker-image e2e-test/multi-nic-cni-controller:latest --name ${CLUSTER_NAME}
 .PHONY: controller-build-load
 
-load-images:
+load-images: load-kwok
 	kind load docker-image e2e-test/daemon-stub:latest --name ${CLUSTER_NAME}
 	kind load docker-image e2e-test/cni-stub:latest --name ${CLUSTER_NAME}
 	kind load docker-image e2e-test/multi-nic-cni-controller:latest --name ${CLUSTER_NAME}
@@ -49,6 +49,10 @@ load-images:
 
 build-load-images: controller-build-load daemon-build-load cni-build-load
 .PHONY: build-load-images
+
+load-kwok:
+	docker pull ghcr.io/sunya-ch/kwok:ab07cfa-dirty
+	kind load docker-image ghcr.io/sunya-ch/kwok:ab07cfa-dirty --name ${CLUSTER_NAME}
 
 # deployment
 prepare-controller:
