@@ -529,4 +529,25 @@ test_resilience() {
 	check_cidr 1 0
 }
 
+_test_restart_time() {
+    from=$1
+    to=$2
+    n=$to
+    kubectl delete multinicnetwork --all
+    echo "Deploying $n nodes"
+    deploy_n_node $from $to
+    deploy_network 8
+    wait_n $n
+    check_cidr 1 $n
+    time restart_controller 
+    kubectl delete multinicnetwork --all
+}
+
+test_restart_time() {
+    _test_restart_time 1 10
+    _test_restart_time 11 50
+    _test_restart_time 51 100
+    _test_restart_time 101 200
+}
+
 "$@"

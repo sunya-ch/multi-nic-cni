@@ -24,7 +24,7 @@ jobs:
       DAEMON_IMAGE_NAME: e2e-test/daemon-stub
       CNI_IMAGE_NAME: e2e-test/cni-stub
       CONTROLLER_IMAGE_NAME: e2e-test/multi-nic-cni-controller
-      CLUSTER_NAME: kind-500
+      CLUSTER_NAME: kind-1000
     steps:
       - uses: actions/checkout@v2
       - name: Prepare tools
