@@ -163,6 +163,11 @@ clean-concheck:
 	@kubectl delete pod -n default --selector multi-nic-concheck
 	@kubectl delete job -n default --selector multi-nic-concheck
 
+test-mlbench:
+	@cd ./live-migration && chmod +x live_migrate.sh && ./live_migrate.sh mlbench
+
+test-cpe-mlbench:
+	@cd ./live-migration && chmod +x live_migrate.sh && ./live_migrate.sh mlbench_with_cpe
 
 export SERVER_HOST_NAME ?= $(shell kubectl get nodes|tail -n 2|head -n 1|awk '{ print $1 }')
 export CLIENT_HOST_NAME ?= $(shell kubectl get nodes|tail -n 1|awk '{ print $1 }')

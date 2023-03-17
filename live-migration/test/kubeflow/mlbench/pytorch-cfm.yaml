@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multi-nic-mlbench-cfm
+data:
+  mlbench.py: |
+    import logging
+    import os
+    import json
+    import torch
+    import torch.distributed as dist
+    import torch.nn as nn
+    import torch.nn.functional as F
+    import torch.optim as optim
+
+    from math import ceil
+    from random import Random
+    from torch.autograd import Variable
+    from torchvision import datasets, transforms
+
+    import numpy as np
+
+    from datetime import datetime, timedelta
+
+    def get_random_tensor(size, dtype, use_cuda):
+        """Returns a random tensor of given type and size
+
+        Args:
+            size (int): Tensor size (number of elements)
+            dtype (:obj:`torch.dtype`): One of `torch.float16` and `torch.flaot32`
+            use_cuda (bool): Return CUDA tensor
+
+        Returns:
+
+        """
+        tensor = torch.rand(size).to(dtype=dtype)
+        if use_cuda:
+            tensor = tensor.cuda()
+        return tensor
+
+
+    def reduce_tensor(tensor):
+        """Reduces the given tensor across all workers
+
+        Args:
+            tensor (:obj:`torch.Tensor`): THe tensor to reduce
+        """
+        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+
+    def get_communication_average(size, dtype, use_cuda, num_samples):
+        """Performs multiple reductions of random tensors, and returns the average time
+        per operation.
+
+        Args:
+            size (int): Tensor size
+            dtype (:obj:`torch.dtype`): One of `torch.float16` and `torch.flaot32`
+            use_cuda (bool): Use CUDA tensors
+            num_samples (int): Number of samples to gather
+
+        Returns:
+            (float): Average time per communication step in seconds
+        """
+        times = []
+        for i in range(num_samples):
+            tensor = get_random_tensor(size, dtype=dtype, use_cuda=use_cuda)
+            start = datetime.now()
+            reduce_tensor(tensor)
+            if use_cuda:
+                torch.cuda.synchronize()
+            end = datetime.now()
+            times.append((end - start).total_seconds())
+
+        return sum(times[1:]) / (len(times) - 1)
+
+    def run():
+        """ Simple Send/Recv for testing Master <--> Workers communication """
+        size = dist.get_world_size()
+        backend = os.environ.get("BACKEND", "{}")
+        gpu = os.environ.get("USE_GPU", "false").lower() == "true"
+        gpu = (backend == "nccl") or gpu
+
+        # Define size range and number of samples to gather
+        # size_range = np.logspace(0, 8, num=80)
+        # num_samples = 100
+        size_range = np.array([1048576])
+        num_samples = 100
+
+        data_type = os.environ.get("DATA_TYPE", "float32")
+        print("DATA_TYPE: {}".format( data_type))
+
+        outputlog = "# OSU MPI-formatted Result\n"
+
+        outputlog += "{0:<20}{1}\n".format("# Size", "Latency (us)")
+
+        for j, size in enumerate(size_range):
+            size = int(size)
+            if data_type == "float16":
+                avg = get_communication_average(
+                    size, torch.float16, gpu, num_samples
+                )
+            else:
+              avg = get_communication_average(
+                  size, torch.float32, gpu, num_samples
+              )
+            avg *= 1000000
+            avg = int(avg)
+            outputlog += "{0:<20}{1}\n".format(size, avg)
+        
+        print(outputlog)
+        
+    def cleanup():
+        dist.destroy_process_group()
+
+    def init_processes(fn, backend='gloo'):
+        """ Initialize the distributed environment. """
+
+        world_size = int(os.environ.get("WORLD_SIZE", "{}"))
+        print("WORLD_SIZE: {}".format( world_size))
+
+        rank = int(os.environ.get("RANK", "{}"))
+        print("RANK: {}".format(rank))
+
+        dist.init_process_group(backend, init_method="env://", timeout=timedelta(seconds=5400))
+
+        local_rank = int(os.environ["LOCAL_RANK"])
+        print("LOCAL RANK: {}".format(local_rank))
+        torch.cuda.set_device(local_rank)
+
+        fn()
+        cleanup()
+
+    def main():
+        print("Torch version: {}".format( torch.__version__))
+
+        backend = os.environ.get("BACKEND", "{}")
+        print("BACKEND: {}".format( backend))
+        
+        port = os.environ.get("MASTER_PORT", "{}")
+        print("MASTER_PORT: {}".format( port))
+        
+        addr = os.environ.get("MASTER_ADDR", "{}")
+        print("MASTER_ADDR: {}".format( addr))
+
+        init_processes(run, backend=backend)
+
+
+    if __name__ == "__main__":
+        logging.getLogger().setLevel(logging.INFO)
+        main()
+        
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multi-nic-pytorch-test-cfm
+data:
+  job.sh: |
+    #!/bin/bash -x
+    export NR_NODES="${1:-1}"
+    export NCCL_IB_DISABLE=1
+    export NCCL_IBEXT_DISABLE=1
+    export NCCL_DEBUG=INFO
+    export NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV,TUNING
+    export WORLD_SIZE=$(($GPUS_PER_NODE*$NR_NODES))
+
+    DISTRIBUTED_ARGS="--nproc_per_node=$GPUS_PER_NODE --nnodes=$NR_NODES --max_restarts=1 --rdzv_id=multi-nic-test --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR"
+    torchrun $DISTRIBUTED_ARGS /workspace/py/mlbench.py

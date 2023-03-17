@@ -1,0 +1,124 @@
+apiVersion: "kubeflow.org/v1"
+kind: "PyTorchJob"
+metadata:
+  name: multi-nic-pytorch-test
+spec:
+  pytorchReplicaSpecs:
+    Master:
+      replicas: 1
+      restartPolicy: OnFailure
+      template:
+        metadata:
+          annotations:
+            k8s.v1.cni.cncf.io/networks: netname
+          labels:
+            multinic: pytorch-test
+        spec:
+          containers:
+            - name: pytorch
+              image: nvcr.io/nvidia/pytorch:22.12-py3
+              command:
+              - bash
+              - -c
+              - |
+                bash /workspace/scripts/job.sh 2 # NR_NODES
+              resources:
+                requests:
+                  nvidia.com/gpu: {{ index backend 1 }}
+                limits:
+                  nvidia.com/gpu: {{ index backend 1 }}
+              volumeMounts:
+              - mountPath: /workspace/scripts
+                name: job-sh
+                readOnly: true
+              - mountPath: /workspace/py
+                name: mlbench
+              env:
+              - name: GLOO_SOCKET_IFNAME
+                value: {{ .iface }}
+              - name: NCCL_SOCKET_IFNAME
+                value: {{ .iface }}
+              - name: BACKEND
+                value: {{ index .backend 0 }}
+              - name: DATA_TYPE
+                value: float32
+              - name: GPUS_PER_NODE
+                value: "8"
+          volumes:
+            - name: job-sh
+              configMap:
+                name: multi-nic-pytorch-test-cfm
+                items:
+                - key: "job.sh"
+                  path: "job.sh"
+            - name: mlbench
+              configMap:
+                name: multi-nic-mlbench-cfm
+                items:
+                - key: "mlbench.py"
+                  path: "mlbench.py"
+    Worker:
+      replicas: 1
+      restartPolicy: OnFailure
+      template:
+        metadata:
+          annotations:
+            k8s.v1.cni.cncf.io/networks: netname
+          labels:
+            multinic: pytorch-test
+        spec:
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchExpressions:
+                    - key: multinic
+                      operator: In
+                      values:
+                      - pytorch-test
+                  topologyKey: kubernetes.io/hostname
+          containers: 
+            - name: pytorch
+              image: nvcr.io/nvidia/pytorch:22.12-py3
+              env:
+              - name: GLOO_SOCKET_IFNAME
+                value: {{ .iface }}
+              - name: NCCL_SOCKET_IFNAME
+                value: {{ .iface }}
+              - name: BACKEND
+                value: {{ index .backend 0 }}
+              - name: DATA_TYPE
+                value: float32
+              - name: GPUS_PER_NODE
+                value: "8"
+              command:
+              - bash
+              - -c
+              - |
+                bash /workspace/scripts/job.sh 2 # NR_NODES
+              resources:
+                requests:
+                  nvidia.com/gpu: {{ index backend 1 }}
+                limits:
+                  nvidia.com/gpu: {{ index backend 1 }}
+              volumeMounts:
+              - mountPath: /workspace/scripts
+                name: job-sh
+                readOnly: true
+              - mountPath: /workspace/py
+                name: mlbench
+          volumes:
+            - name: job-sh
+              configMap:
+                name: multi-nic-pytorch-test-cfm
+                items:
+                - key: "job.sh"
+                  path: "job.sh"
+            - name: mlbench
+              configMap:
+                name: multi-nic-mlbench-cfm
+                items:
+                - key: "mlbench.py"
+                  path: "mlbench.py"

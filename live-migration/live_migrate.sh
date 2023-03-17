@@ -39,6 +39,12 @@ apply() {
     yq -e ${REPLACEMENT} ${YAMLFILE}.yaml|kubectl apply -f -
 }
 
+catfile() {
+    export REPLACEMENT=$1
+    export YAMLFILE=$2
+    yq -e ${REPLACEMENT} ${YAMLFILE}.yaml|cat
+}
+
 create_replacement() {
     export LOCATION=$1
     export REPLACE_VALUE=$2
@@ -203,6 +209,44 @@ restart_controller() {
     echo "Config Ready"
 }
 
+check_cidr() {
+    nhost=$1
+    nvlan=$2
+    cidr=$(kubectl get cidr $(get_netname) -ojson|jq .spec.cidr)
+    vlanlen=$(echo $cidr| jq '. | length')
+    if [ "$nhost" != 0 ] && [ "$vlanlen" != $nvlan ] ; then
+        echo >&2 "Fatal error: interface length $vlanlen != $nvlan"
+        exit 2
+    else
+        i=0
+        while [ "$i" -lt $nvlan ]; do
+            hosts=$(echo $cidr| jq .[${i}].hosts)
+            hostlen=$(echo $hosts| jq '.|length')
+            if [ "$hostlen" != $nhost ] ; then
+                echo >&2 "Fatal error: host length $hostlen != $nhost"
+                exit 2
+            fi
+            i=$(( i + 1 ))
+        done 
+    fi
+}
+
+wait_node() {
+    for nodename in $(kubectl get nodes |awk '(NR>1){print $1}'); do
+        kubectl wait node ${nodename} --for condition=Ready --timeout=1000s
+    done
+}
+
+wait_node_readiness() {
+    wait_node
+    nhost=$(kubectl get nodes -l node-role.kubernetes.io/worker -ojson|jq '.items|length')
+    until $(check_cidr $nhost $1); 
+    do
+        echo "wait for CIDR ready, sleep 10s"
+        sleep 10
+    done
+}
+
 #############################################
 
 #############################################
@@ -246,6 +290,44 @@ live_iperf3() {
    kubectl delete pod ${CLIENT_NAME} ${SERVER_NAME}
 }
 
+# kubeflow test
+mlbench_base() {
+    # require training operator
+    if [[ ! $(kubectl get crd pytorchjobs.kubeflow.org) ]]; then
+        echo >&2 "pytorchjobs.kubeflow.org not available, please install training-operator"
+        exit 2
+    fi
+    NETWORK_NAME=$(get_netname)
+    MASTER_NETWORK_REPLACEMENT=$(create_replacement .spec.pytorchReplicaSpecs.Master.template.metadata.annotations.\"k8s.v1.cni.cncf.io/networks\" \"${NETWORK_NAME}\")
+    WORKER_NETWORK_REPLACEMENT=$(create_replacement .spec.pytorchReplicaSpecs.Worker.template.metadata.annotations.\"k8s.v1.cni.cncf.io/networks\" \"${NETWORK_NAME}\")
+    catfile ${MASTER_NETWORK_REPLACEMENT},${WORKER_NETWORK_REPLACEMENT} ./test/kubeflow/mlbench/pytorch-job
+}
+
+mlbench_with_cpe() {
+    # deploy operator
+    kubectl apply -f ./test/kubeflow/mlbench/cpe_benchmark_operator.yaml
+    # deploy configmap
+    kubectl apply -f ./test/kubeflow/mlbench/pytorch-cfm.yaml
+
+    spec=$(mlbench_base|yq .spec)  yq -e '.spec.benchmarkSpec = strenv(spec)' ./test/kubeflow/mlbench/cpe_benchmark.yaml|kubectl apply -f -
+    echo "Wait for job to be completed, sleep 1m"
+    sleep 60
+    jobCompleted=$(kubectl get benchmark mlbench -ojson|jq -r .status.jobCompleted)
+    while [ "$jobCompleted" != "6/6" ] ; 
+    do  
+        echo "$jobCompleted completed, sleep 10s"
+        sleep 10
+        jobCompleted=$(kubectl get benchmark mlbench -ojson|jq -r .status.jobCompleted)
+    done
+    kubectl get benchmark mlbench -oyaml|yq .status.bestResults
+}
+
+mlbench() {
+    # deploy configmap
+    kubectl apply -f ./test/kubeflow/mlbench/pytorch-cfm.yaml
+
+    mlbench_base|kubectl apply -f -
+}
 #############################################
 
 

@@ -1,0 +1,24 @@
+apiVersion: cpe.cogadvisor.io/v1
+kind: Benchmark
+metadata:
+  name: mlbench
+spec:
+  benchmarkOperator:
+    name:  pytorch-job-operator
+    namespace: kubeflow
+  benchmarkSpec: ""
+  repetition: 1
+  iterationSpec:
+    sequential: true
+    minimize: true
+    iterations:
+      - name: backend
+        values:
+        - "gloo;0"
+        - "nccl;8"
+      - name: iface
+        values:
+        - "eth0"
+        - "net-1"
+        - "eth0,net1-0"
+  parserKey: osu
