@@ -1,6 +1,16 @@
 #!/bin/bash
 # yq 
-OPERATOR_NAMESPACE=multi-nic-cni-operator-system
+if [ -z ${OPERATOR_NAMESPACE} ]; then
+    OPERATOR_NAMESPACE="multi-nic-cni-operator-system"
+fi
+
+if [ -z ${DAEMON_STUB_IMG} ]; then
+    export DAEMON_STUB_IMG="e2e-test/daemon-stub:latest"
+fi
+
+if [ -z ${CNI_STUB_IMG} ]; then
+    export CNI_STUB_IMG="e2e-test/cni-stub:latest"
+fi
 
 get_controller() {
     kubectl get po -n ${OPERATOR_NAMESPACE}|grep multi-nic-cni-operator-controller-manager|awk '{print $1}'
@@ -77,13 +87,13 @@ wait_node() {
 _deploy_node() {
     i=$1
     export podname=multi-nicd-stub-$i
-    yq e '.metadata.name = env(podname)' deploy/template/daemon-stub-pod.tpl|kubectl apply -f - > /dev/null 2>&1
+    yq e '(.metadata.name = env(podname)),(.spec.containers[0].image = env(DAEMON_STUB_IMG))' deploy/template/daemon-stub-pod.tpl|kubectl apply -n ${OPERATOR_NAMESPACE} -f - # > /dev/null 2>&1
     sleep 5
-    kubectl wait pod ${podname} -n ${OPERATOR_NAMESPACE} --for condition=Ready --timeout=1000s > /dev/null 2>&1
+    kubectl wait pod ${podname} -n ${OPERATOR_NAMESPACE} --for condition=Ready --timeout=1000s # > /dev/null 2>&1
     export hostIP=$(kubectl get po multi-nicd-stub-${i} -n ${OPERATOR_NAMESPACE} -oyaml|yq .status.podIP)
     export nodename=kwok-node-$i
-    yq e '(.metadata.name=env(nodename)),(.metadata.labels."kubernetes.io/hostname"=env(nodename)),(.status.addresses[0].address=env(hostIP))' deploy/template/fake-node.tpl|kubectl apply -f - > /dev/null 2>&1
-    kubectl wait node ${nodename} --for condition=Ready --timeout=1000s > /dev/null 2>&1
+    yq e '(.metadata.name=env(nodename)),(.metadata.labels."kubernetes.io/hostname"=env(nodename)),(.status.addresses[0].address=env(hostIP))' deploy/template/fake-node.tpl|kubectl apply -f - # > /dev/null 2>&1
+    kubectl wait node ${nodename} --for condition=Ready --timeout=1000s # > /dev/null 2>&1
 }
 
 deploy_n_node() {
@@ -92,7 +102,7 @@ deploy_n_node() {
     pids=""
     i=$from
     while [ "$i" -le $to ]; do
-        _deploy_node $i&
+        _deploy_node $i
         pids="$pids $!"
         i=$(( i + 1 ))
     done 
@@ -230,7 +240,7 @@ add_pod() {
         export jobName=cni-${hostName}
         export args="./cni --command=add --start=${starti} --n=${n} --host=${hostName} --dip=${hostIP}"
         export hostIP=$(kubectl get po multi-nicd-stub-${i} -n ${OPERATOR_NAMESPACE} -oyaml|yq .status.podIP)
-        yq e '(.metadata.name=env(jobName)),(.spec.template.spec.containers[0].args=[env(args)])' deploy/template/cni-stub-job.tpl|kubectl apply -f - > /dev/null 2>&1
+        yq e '(.metadata.name=env(jobName)),(.spec.template.spec.containers[0].args=[env(args)]),(.spec.template.spec.containers[0].image = env(CNI_STUB_IMG))' deploy/template/cni-stub-job.tpl|kubectl apply -n ${OPERATOR_NAMESPACE} -f - > /dev/null 2>&1
         i=$(( i + 1 ))
     done 
     kubectl wait --for=condition=complete --timeout=1000s job --selector app=cni-stub -n ${OPERATOR_NAMESPACE} > /dev/null 2>&1
@@ -264,7 +274,7 @@ delete_pod() {
         export jobName=cni-${hostName}
         export args="./cni --command=delete --start=${starti} --n=${n} --host=${hostName} --dip=${hostIP}"
         export hostIP=$(kubectl get po multi-nicd-stub-${i} -n ${OPERATOR_NAMESPACE} -oyaml|yq .status.podIP)
-        yq e '(.metadata.name=env(jobName)),(.spec.template.spec.containers[0].args=[env(args)])' deploy/template/cni-stub-job.tpl|kubectl apply -f - > /dev/null 2>&1
+        yq e '(.metadata.name=env(jobName)),(.spec.template.spec.containers[0].args=[env(args)])' deploy/template/cni-stub-job.tpl|kubectl apply -n ${OPERATOR_NAMESPACE} -f - > /dev/null 2>&1
         i=$(( i + 1 ))
     done 
     kubectl wait --for=condition=complete --timeout=1000s job --selector app=cni-stub -n ${OPERATOR_NAMESPACE} > /dev/null 2>&1
