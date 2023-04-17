@@ -164,12 +164,14 @@ func (h *HostInterfaceHandler) IpamJoin(daemon DaemonPod) error {
 	h.Log.V(4).Info(fmt.Sprintf("Join %s with %d hifs", daemon.HostIP, hifLen))
 	err := h.DaemonConnector.Join(podAddress, hifs)
 	if err != nil {
+		h.Log.V(4).Info(fmt.Sprintf("Fail to join %s: %v", daemon.HostIP, err))
 		return err
 	}
 	err = h.addLabel(daemon, JOIN_LABEL_NAME, fmt.Sprintf("%d", hifLen))
 	if err != nil {
 		h.Log.V(4).Info(fmt.Sprintf("Fail to add label to %s: %v", daemon.Name, err))
 	}
+	h.Log.V(4).Info(fmt.Sprintf("%s successfully joined", daemon.Name))
 	return nil
 }
 

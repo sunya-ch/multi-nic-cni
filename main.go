@@ -35,7 +35,7 @@ import (
 )
 
 var (
-	MAX_QSIZE       = 100
+	MAX_QSIZE       = 200
 	scheme          = runtime.NewScheme()
 	setupLog        = ctrl.Log.WithName("setup")
 	TICKET_INTERVAL = 10 * time.Minute

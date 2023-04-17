@@ -102,20 +102,22 @@ deploy_n_node() {
     pids=""
     i=$from
     while [ "$i" -le $to ]; do
-        _deploy_node $i
+        _deploy_node $i&
         pids="$pids $!"
         i=$(( i + 1 ))
     done 
     wait $pids
+    check_ip_sync $from $to
 }
 
 _delete_node() {
     i=$1
     export podname=multi-nicd-stub-$i
-    kubectl delete pod ${podname} -n ${OPERATOR_NAMESPACE} > /dev/null 2>&1
+    kubectl delete pod ${podname} -n ${OPERATOR_NAMESPACE} #> /dev/null 2>&1
     export nodename=kwok-node-$i
-    kubectl delete node ${nodename} > /dev/null 2>&1
-    kubectl delete po --field-selector spec.nodeName=${nodename} -n ${OPERATOR_NAMESPACE} --grace-period=0 > /dev/null 2>&1
+    kubectl patch node ${nodename} -p '{"metadata":{"finalizers":null}}' --type=merge
+    kubectl delete node ${nodename} #> /dev/null 2>&1
+    kubectl delete po --field-selector spec.nodeName=${nodename} -n ${OPERATOR_NAMESPACE} --grace-period=0 #> /dev/null 2>&1
 }
 
 delete_n_node() {
@@ -274,10 +276,10 @@ delete_pod() {
         export jobName=cni-${hostName}
         export args="./cni --command=delete --start=${starti} --n=${n} --host=${hostName} --dip=${hostIP}"
         export hostIP=$(kubectl get po multi-nicd-stub-${i} -n ${OPERATOR_NAMESPACE} -oyaml|yq .status.podIP)
-        yq e '(.metadata.name=env(jobName)),(.spec.template.spec.containers[0].args=[env(args)])' deploy/template/cni-stub-job.tpl|kubectl apply -n ${OPERATOR_NAMESPACE} -f - > /dev/null 2>&1
+        yq e '(.metadata.name=env(jobName)),(.spec.template.spec.containers[0].args=[env(args)])' deploy/template/cni-stub-job.tpl|kubectl apply -n ${OPERATOR_NAMESPACE} -f - #> /dev/null 2>&1
         i=$(( i + 1 ))
     done 
-    kubectl wait --for=condition=complete --timeout=1000s job --selector app=cni-stub -n ${OPERATOR_NAMESPACE} > /dev/null 2>&1
+    kubectl wait --for=condition=complete --timeout=1000s job --selector app=cni-stub -n ${OPERATOR_NAMESPACE} #> /dev/null 2>&1
     clean_fake_cni
 }
 
@@ -358,20 +360,24 @@ check_cidr(){
     cidr=$(kubectl get cidr multi-nic-sample -ojson|jq .spec.cidr)
     n=$((${to}-${from}+1))
     vlanlen=$(echo $cidr| jq '. | length')
-    if [ "$n" != 0 ] && [ "$vlanlen" != 3 ] ; then
-        echo >&2 "Fatal error: interface length $n != 0 and $len != 3"
+    if [ "$n" != 0 ] && [ "$vlanlen" -lt 3 ] ; then
+        echo >&2 "Fatal error: interface length $n != 0 and $vlanlen < 3"
         exit 2
     else
+        total_hostlen=0
         i=0
-        while [ "$i" -le 2 ]; do
+        while [ "$i" -lt "$vlanlen" ]; do
             hosts=$(echo $cidr| jq .[${i}].hosts)
             hostlen=$(echo $hosts| jq '.|length')
-            if [ "$hostlen" != $n ] ; then
-                echo >&2 "Fatal error: host length $hostlen != $n"
-                exit 2
-            fi
+            total_hostlen=$(( total_hostlen + hostlen ))
             i=$(( i + 1 ))
         done 
+        hostlen_per_iface=$(( total_hostlen / 3 ))
+        if [ "$hostlen_per_iface" != $n ] ; then
+            echo >&2 "Fatal error: host length $hostlen_per_iface != $n"
+            exit 2
+        fi
+
         echo "CIDR checked (${n})"
     fi
 }
@@ -430,6 +436,40 @@ test_step_scale() {
 	echo $((END-START)) | awk '{print "Test time: "int($1/60)":"int($1%60)}'
 }
 
+test_500_step_scale() {
+    # kubectl delete multinicnetwork --all
+	# echo $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+	# STARTTIME=$(date +%s)
+    # start=1
+    # step=10
+    # end=$step
+    
+    # while [ "$end" -le  200 ]; do
+    #     echo "Deploying from ${start} to ${end}"
+    #     time deploy_n_node $start $end
+    #     sleep 10
+    #     start=$(( start + step ))
+    #     end=$(( end + step ))
+    # done
+
+    # deploy_network 10
+
+    start=421
+    step=10
+    end=$(( start + step - 1 ))
+    while [ "$end" -le  500 ]; do
+        echo "Deploying from ${start} to ${end}"
+        time deploy_n_node $start $end
+        time wait_n $end
+	    check_cidr 1 $end
+        start=$(( start + step ))
+        end=$(( end + step ))
+    done
+
+	export ENDTIME=$(date +%s)
+	echo $((ENDTIME-STARTTIME)) | awk '{print "Test time: "int($1/60)":"int($1%60)}'
+}
+
 test_clean() {
 	time delete_n_node 101 200
 	time wait_n 100
@@ -456,6 +496,21 @@ test_step_clean() {
 	time wait_n 0
     check_cidr 1 0
 }
+
+test_500_step_clean() {
+    end=500
+    step=20
+    start=$(( end - step + 1 ))
+    
+    while [ "$start" -ge  1 ]; do
+        echo "Deleting from ${start} to ${end}"
+        delete_n_node ${start} ${end}
+        sleep 10
+        start=$(( start - step ))
+        end=$(( end - step ))
+    done
+}
+
 
 test_small_scale() {
     deploy_network 8

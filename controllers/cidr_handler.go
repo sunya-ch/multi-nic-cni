@@ -696,45 +696,52 @@ func (h *CIDRHandler) SyncIPPoolWithActivePods(cidrMap map[string]multinicv1.CID
 
 // getCurrentAllocationMap returns mapping of deName->allocations
 func (h *CIDRHandler) getCurrentAllocationMap(cidrMap map[string]multinicv1.CIDR) (map[string]map[string]multinicv1.Allocation, error) {
+	h.Log.V(5).Info("getCurrentAllocationMap")
 	selectors := fmt.Sprintf("%s=%s", POD_STATUS_FIELD, POD_STATUS_VALUE)
 	listOptions := metav1.ListOptions{
 		FieldSelector: selectors,
 	}
-	pods, err := h.Clientset.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), listOptions)
 	allocationMap := make(map[string]map[string]multinicv1.Allocation)
+	namespaceList, err := h.Clientset.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
 	if err == nil {
-		for _, pod := range pods.Items {
-			networksStatus := make([]plugin.NetworkStatus, 0)
-			if networkStatusStr, valid := pod.Annotations[plugin.StatusesKey]; valid {
-				err := json.Unmarshal([]byte(networkStatusStr), &networksStatus)
-				if err != nil {
-					h.Log.V(5).Info(fmt.Sprintf("Cannot unmarshal NetworkStatus: %s", networkStatusStr))
-					continue
-				}
-				for _, status := range networksStatus {
-					nameSplit := strings.Split(status.Name, "/")
-					var defName string
-					if len(nameSplit) > 1 {
-						defName = nameSplit[len(nameSplit)-1]
-					} else {
-						defName = nameSplit[0]
-					}
-					if _, cidrFound := cidrMap[defName]; !cidrFound {
-						// irrelevant status
-						continue
-					}
-
-					_, found := allocationMap[defName]
-					if !found {
-						allocationMap[defName] = make(map[string]multinicv1.Allocation)
-					}
-					for _, ip := range status.IPs {
-						allocation := multinicv1.Allocation{
-							Pod:       pod.GetName(),
-							Namespace: pod.GetNamespace(),
-							Address:   ip,
+		for _, ns := range namespaceList.Items {
+			h.Log.V(5).Info(fmt.Sprintf("check pods in %s", ns.Name))
+			pods, err := h.Clientset.CoreV1().Pods(ns.Name).List(context.TODO(), listOptions)
+			if err == nil {
+				for _, pod := range pods.Items {
+					networksStatus := make([]plugin.NetworkStatus, 0)
+					if networkStatusStr, valid := pod.Annotations[plugin.StatusesKey]; valid {
+						err := json.Unmarshal([]byte(networkStatusStr), &networksStatus)
+						if err != nil {
+							h.Log.V(5).Info(fmt.Sprintf("Cannot unmarshal NetworkStatus: %s", networkStatusStr))
+							continue
 						}
-						allocationMap[defName][ip] = allocation
+						for _, status := range networksStatus {
+							nameSplit := strings.Split(status.Name, "/")
+							var defName string
+							if len(nameSplit) > 1 {
+								defName = nameSplit[len(nameSplit)-1]
+							} else {
+								defName = nameSplit[0]
+							}
+							if _, cidrFound := cidrMap[defName]; !cidrFound {
+								// irrelevant status
+								continue
+							}
+
+							_, found := allocationMap[defName]
+							if !found {
+								allocationMap[defName] = make(map[string]multinicv1.Allocation)
+							}
+							for _, ip := range status.IPs {
+								allocation := multinicv1.Allocation{
+									Pod:       pod.GetName(),
+									Namespace: pod.GetNamespace(),
+									Address:   ip,
+								}
+								allocationMap[defName][ip] = allocation
+							}
+						}
 					}
 				}
 			}

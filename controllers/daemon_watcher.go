@@ -210,7 +210,8 @@ func (w *DaemonWatcher) createHostInterfaceInfo(daemon v1.Pod) error {
 func (w *DaemonWatcher) IsDaemonSetReady() bool {
 	ds, err := w.Clientset.AppsV1().DaemonSets(DAEMON_NAMESPACE).Get(context.TODO(), DaemonName, metav1.GetOptions{})
 	if err == nil {
-		return ds.Status.NumberAvailable == ds.Status.DesiredNumberScheduled
+		ready := ds.Status.CurrentNumberScheduled == ds.Status.DesiredNumberScheduled
+		return ready
 	}
 	return false
 }
