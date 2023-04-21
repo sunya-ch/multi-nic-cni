@@ -37,6 +37,8 @@ const (
 	MAX_QSIZE = 100
 
 	ConfigWaitingReconcileTime = 5 * time.Second
+
+	NODENAME_ENV = "NODENAME"
 )
 
 var (
@@ -228,6 +230,16 @@ func (r *ConfigReconciler) newCNIDaemonSet(client *kubernetes.Clientset, name st
 		vmnts = append(vmnts, vmnt)
 		volumes = append(volumes, volume)
 	}
+	// hostName environment
+	hostNameVar := corev1.EnvVar{
+		Name: NODENAME_ENV,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "spec.nodeName",
+			},
+		},
+	}
+	daemonSpec.Env = append(daemonSpec.Env, hostNameVar)
 
 	// prepare secret
 	secrets := []corev1.LocalObjectReference{}

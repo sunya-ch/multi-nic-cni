@@ -71,6 +71,7 @@ const (
 	DEALLOCATE_PATH = "/deallocate"
 
 	NIC_SELECT_PATH = "/select"
+	NODENAME_ENV    = "NODENAME"
 )
 
 var (
@@ -82,6 +83,7 @@ var (
 
 	DAEMON_PORT = 11000
 	HostIP      string
+	hostName    string
 )
 
 func handleRequests() *mux.Router {
@@ -223,6 +225,11 @@ func Allocate(w http.ResponseWriter, r *http.Request) {
 	reqBody, _ := ioutil.ReadAll(r.Body)
 	var req da.IPRequest
 	err := json.Unmarshal(reqBody, &req)
+	if strings.Contains(hostName, req.HostName) {
+		// hostName has prefix-suffix
+		req.HostName = hostName
+	}
+
 	var ipResponses []da.IPResponse
 	if err == nil {
 		log.Println(fmt.Sprintf("request: %v", req))
@@ -238,7 +245,13 @@ func Deallocate(w http.ResponseWriter, r *http.Request) {
 	reqBody, _ := ioutil.ReadAll(r.Body)
 	var req da.IPRequest
 	err := json.Unmarshal(reqBody, &req)
+	if strings.Contains(hostName, req.HostName) {
+		// hostName has prefix-suffix
+		req.HostName = hostName
+	}
+
 	if err == nil {
+		log.Println(fmt.Sprintf("request: %v", req))
 		da.DeallocateIP(req)
 	}
 	json.NewEncoder(w).Encode("")
@@ -262,12 +275,24 @@ func InitClient() *rest.Config {
 	da.IppoolHandler = backend.NewIPPoolHandler(config)
 	da.K8sClientset, _ = kubernetes.NewForConfig(config)
 	return config
+}
 
-	return config
+func initHostName() {
+	var err error
+	var found bool
+	hostName, found = os.LookupEnv(NODENAME_ENV)
+	if !found {
+		hostName, err = os.Hostname()
+		if err != nil {
+			log.Println("failed to get host name")
+		}
+	}
+	log.Printf("hostName=%s\n", hostName)
 }
 
 func main() {
 	InitClient()
+	initHostName()
 	var found bool
 	HostIP, found = os.LookupEnv("HOST_IP")
 	if !found {
