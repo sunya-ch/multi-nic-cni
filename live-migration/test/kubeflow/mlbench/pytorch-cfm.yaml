@@ -122,9 +122,10 @@ data:
 
         dist.init_process_group(backend, init_method="env://", timeout=timedelta(seconds=5400))
 
-        local_rank = int(os.environ["LOCAL_RANK"])
-        print("LOCAL RANK: {}".format(local_rank))
-        torch.cuda.set_device(local_rank)
+        if backend == "nccl":
+            local_rank = int(os.environ["LOCAL_RANK"])
+            print("LOCAL RANK: {}".format(local_rank))
+            torch.cuda.set_device(local_rank)
 
         fn()
         cleanup()

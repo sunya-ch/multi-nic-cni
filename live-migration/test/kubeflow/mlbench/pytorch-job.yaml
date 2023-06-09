@@ -24,9 +24,9 @@ spec:
                 bash /workspace/scripts/job.sh 2 # NR_NODES
               resources:
                 requests:
-                  nvidia.com/gpu: {{ index backend 1 }}
+                  nvidia.com/gpu: 0
                 limits:
-                  nvidia.com/gpu: {{ index backend 1 }}
+                  nvidia.com/gpu: 0
               volumeMounts:
               - mountPath: /workspace/scripts
                 name: job-sh
@@ -35,11 +35,11 @@ spec:
                 name: mlbench
               env:
               - name: GLOO_SOCKET_IFNAME
-                value: {{ .iface }}
+                value: net1-0
               - name: NCCL_SOCKET_IFNAME
-                value: {{ .iface }}
+                value: net1-0
               - name: BACKEND
-                value: {{ index .backend 0 }}
+                value: gloo
               - name: DATA_TYPE
                 value: float32
               - name: GPUS_PER_NODE
@@ -84,11 +84,11 @@ spec:
               image: nvcr.io/nvidia/pytorch:22.12-py3
               env:
               - name: GLOO_SOCKET_IFNAME
-                value: {{ .iface }}
+                value: net1-0
               - name: NCCL_SOCKET_IFNAME
-                value: {{ .iface }}
+                value: net1-0
               - name: BACKEND
-                value: {{ index .backend 0 }}
+                value: gloo
               - name: DATA_TYPE
                 value: float32
               - name: GPUS_PER_NODE
@@ -100,9 +100,9 @@ spec:
                 bash /workspace/scripts/job.sh 2 # NR_NODES
               resources:
                 requests:
-                  nvidia.com/gpu: {{ index backend 1 }}
+                  nvidia.com/gpu: 0
                 limits:
-                  nvidia.com/gpu: {{ index backend 1 }}
+                  nvidia.com/gpu: 0
               volumeMounts:
               - mountPath: /workspace/scripts
                 name: job-sh

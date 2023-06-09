@@ -42,7 +42,7 @@ apply() {
 catfile() {
     export REPLACEMENT=$1
     export YAMLFILE=$2
-    yq -e ${REPLACEMENT} ${YAMLFILE}.yaml|cat
+    yq -e ${REPLACEMENT} ${YAMLFILE}|cat
 }
 
 create_replacement() {
@@ -300,7 +300,29 @@ mlbench_base() {
     NETWORK_NAME=$(get_netname)
     MASTER_NETWORK_REPLACEMENT=$(create_replacement .spec.pytorchReplicaSpecs.Master.template.metadata.annotations.\"k8s.v1.cni.cncf.io/networks\" \"${NETWORK_NAME}\")
     WORKER_NETWORK_REPLACEMENT=$(create_replacement .spec.pytorchReplicaSpecs.Worker.template.metadata.annotations.\"k8s.v1.cni.cncf.io/networks\" \"${NETWORK_NAME}\")
-    catfile ${MASTER_NETWORK_REPLACEMENT},${WORKER_NETWORK_REPLACEMENT} ./test/kubeflow/mlbench/pytorch-job
+    catfile ${MASTER_NETWORK_REPLACEMENT},${WORKER_NETWORK_REPLACEMENT} ./test/kubeflow/mlbench/pytorch-job.$1
+}
+
+deploy_cpe() {
+    kubectl apply -f https://raw.githubusercontent.com/IBM/cpe-operator/main/config/samples/cpe-operator/default.yaml
+}
+
+expect_num() {
+    BENCHMARK=$1
+    BENCHMARK_NS=$2
+    kubectl get benchmark ${BENCHMARK} -n ${BENCHMARK_NS} -oyaml > tmp.yaml
+    BENCHMARK_FILE=tmp.yaml
+    num=$(cat ${BENCHMARK_FILE}|yq ".spec.repetition")
+    if [ -z $num ]; then
+        num=1
+    fi
+
+    for v in $(cat ${BENCHMARK_FILE}|yq eval ".spec.iterationSpec.iterations[].values | length")
+    do
+        ((num *= v))
+    done
+    rm tmp.yaml
+    echo $num
 }
 
 mlbench_with_cpe() {
@@ -308,12 +330,13 @@ mlbench_with_cpe() {
     kubectl apply -f ./test/kubeflow/mlbench/cpe_benchmark_operator.yaml
     # deploy configmap
     kubectl apply -f ./test/kubeflow/mlbench/pytorch-cfm.yaml
-
-    spec=$(mlbench_base|yq .spec)  yq -e '.spec.benchmarkSpec = strenv(spec)' ./test/kubeflow/mlbench/cpe_benchmark.yaml|kubectl apply -f -
+    sed -e 's/netname/'"$(get_netname)"'/g' test/kubeflow/mlbench/cpe_benchmark.yaml|kubectl apply -f -
+    
     echo "Wait for job to be completed, sleep 1m"
     sleep 60
     jobCompleted=$(kubectl get benchmark mlbench -ojson|jq -r .status.jobCompleted)
-    while [ "$jobCompleted" != "6/6" ] ; 
+    EXPECT_NUM=$(expect_num mlbench default)
+    while [ "$jobCompleted" != "${EXPECT_NUM}/${EXPECT_NUM}" ] ; 
     do  
         echo "$jobCompleted completed, sleep 10s"
         sleep 10
@@ -326,7 +349,7 @@ mlbench() {
     # deploy configmap
     kubectl apply -f ./test/kubeflow/mlbench/pytorch-cfm.yaml
 
-    mlbench_base|kubectl apply -f -
+    mlbench_base yaml|kubectl apply -f -
 }
 #############################################
 
