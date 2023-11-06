@@ -2,6 +2,38 @@
 
 ![](../img/alpha-release.png)
 
+## v1.2.2
+
+**Improvements:**
+
+* Multi-config (`multi-config`) IPAM is a feature to allow that in multinicnetwork IPAM definition.
+
+        ipam: |
+            { 
+            "type": "multi-config",
+            "ipam_type": "whereabouts",
+            "args": {
+                    "eth1": {
+                        "range": "192.168.0.0/18"
+                    },
+                    "eth2": {
+                        "range": "192.168.64.0/18"
+                    }
+                }
+            }
+        
+* Set list of static IPs for a specific pod
+
+        annotations:
+                k8s.v1.cni.cncf.io/networks: |
+                    [{
+                            "name": "multinic-network",
+                            "cni-args": {
+                            "masters": ["eth1", "eth2"]
+                            },
+                            "ips": [ "192.168.0.1/18", "192.168.64.1/18" ]
+                    }]
+
 ## v1.2.1
 
 **Improvements:**
