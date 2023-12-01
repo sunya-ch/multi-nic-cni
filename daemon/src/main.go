@@ -18,15 +18,16 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-
-	da "github.com/foundation-model-stack/multi-nic-cni/daemon/allocator"
-	"github.com/foundation-model-stack/multi-nic-cni/daemon/backend"
-	di "github.com/foundation-model-stack/multi-nic-cni/daemon/iface"
-	dr "github.com/foundation-model-stack/multi-nic-cni/daemon/router"
-	ds "github.com/foundation-model-stack/multi-nic-cni/daemon/selector"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	da "github.com/foundation-model-stack/multi-nic-cni/daemon/allocator"
+	"github.com/foundation-model-stack/multi-nic-cni/daemon/backend"
+	"github.com/foundation-model-stack/multi-nic-cni/daemon/generator"
+	di "github.com/foundation-model-stack/multi-nic-cni/daemon/iface"
+	dr "github.com/foundation-model-stack/multi-nic-cni/daemon/router"
+	ds "github.com/foundation-model-stack/multi-nic-cni/daemon/selector"
 )
 
 type IPAMInfo struct {
@@ -53,7 +54,10 @@ const (
 	NODENAME_ENV = "K8S_NODENAME"
 )
 
-var DAEMON_PORT int = 11000
+var (
+	DAEMON_PORT int = 11000
+	GRPC_PORT   int = 11002
+)
 var hostName string
 
 func handleRequests() *mux.Router {
@@ -278,9 +282,40 @@ func main() {
 	}
 	dr.SetRTTablePath()
 
+	setGrpcPort, found := os.LookupEnv("GRPC_PORT")
+	if found && setGrpcPort != "" {
+		setGrpcPortInt, err := strconv.Atoi(setGrpcPort)
+		if err == nil {
+			GRPC_PORT = setGrpcPortInt
+		}
+	}
+
 	da.CleanHangingAllocation(hostName)
 	router := handleRequests()
+
+	// run generator server
+	generatorServer, listener, err := generator.NewGeneratorServer(GRPC_PORT)
+	if err == nil {
+		stopGeneratorServer := func() {
+			err := listener.Close()
+			if err != nil {
+				log.Printf("error closing listener: %v", err)
+			}
+			generatorServer.Stop()
+		}
+
+		go func() {
+			if err := generatorServer.Serve(listener); err != nil {
+				log.Printf("error serving generator server: %v", err)
+			}
+		}()
+		log.Printf("generator server listening at %v", listener.Addr())
+		defer stopGeneratorServer()
+	} else {
+		log.Printf("failed to get listener for generator @%d", GRPC_PORT)
+	}
+
 	daemonAddress := fmt.Sprintf("0.0.0.0:%d", DAEMON_PORT)
-	log.Printf("Listening @%s", daemonAddress)
+	log.Printf("CNI daemon listening @%s", daemonAddress)
 	log.Fatal(http.ListenAndServe(daemonAddress, router))
 }
