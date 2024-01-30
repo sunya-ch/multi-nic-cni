@@ -92,6 +92,16 @@ func GetInterfaceNameMap() map[string]string {
 	return ifaceNameMap
 }
 
+// GetPciAddressMap returns a map from device name to pciaddress
+func GetPciAddressMap() map[string]string {
+	pciAddressMap := make(map[string]string)
+	interfaceMap := GetInterfaceInfoCache()
+	for devName, info := range interfaceMap {
+		pciAddressMap[devName] = info.PciAddress
+	}
+	return pciAddressMap
+}
+
 // GetDefaultInterfaceSubNet returns default subnetwork to be omitted
 func GetDefaultInterfaceSubNet() (string, error) {
 	routeToDstIP, err := netlink.RouteList(nil, netlink.FAMILY_ALL)

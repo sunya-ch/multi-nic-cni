@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - v1.2.0
+      - v1.2.0-dev
     paths:
       - controllers/**
       - compute/**

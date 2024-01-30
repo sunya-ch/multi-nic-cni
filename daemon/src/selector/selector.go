@@ -66,9 +66,13 @@ func getDefaultResponse(req NICSelectRequest, masterNameMap map[string]string, n
 	selectedMasterNetAddrs := selector.Select(req, masterNameMap, nameNetMap, resourceMap)
 	selectedMasters := []string{}
 	selectedDeviceIDs := []string{}
+	pciAddressMap := iface.GetPciAddressMap()
 	for _, netAddress := range selectedMasterNetAddrs {
 		deviceID := deviceMap[netAddress]
 		master := masterNameMap[netAddress]
+		if deviceID == "" {
+			deviceID = pciAddressMap[master]
+		}
 		selectedDeviceIDs = append(selectedDeviceIDs, deviceID)
 		selectedMasters = append(selectedMasters, master)
 	}
@@ -153,11 +157,15 @@ func Select(req NICSelectRequest) NICSelectResponse {
 	selectedMasterNetAddrs := selector.Select(req, filteredMasterNameMap, nameNetMap, resourceMap)
 	selectedMasters := []string{}
 	selectedDeviceIDs := []string{}
+	pciAddressMap := iface.GetPciAddressMap()
 	log.Printf("masterNets %v, %v, %v\n", selectedMasterNetAddrs, filteredMasterNameMap, nameNetMap)
 	for _, netAddress := range selectedMasterNetAddrs {
 		deviceID := deviceMap[netAddress]
 		if master, ok := filteredMasterNameMap[netAddress]; ok && master != "" {
 			log.Printf("masterNets %s,%s\n", deviceID, master)
+			if deviceID == "" {
+				deviceID = pciAddressMap[master]
+			}
 			selectedDeviceIDs = append(selectedDeviceIDs, deviceID)
 			selectedMasters = append(selectedMasters, master)
 		}
