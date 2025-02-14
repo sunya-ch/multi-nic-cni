@@ -17,6 +17,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.11.0
 )
 
+require github.com/NVIDIA/gpu-monitoring-tools v0.0.0-20211102125545-5a2c58442e48
+
 require (
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

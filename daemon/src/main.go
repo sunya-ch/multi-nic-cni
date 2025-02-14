@@ -22,6 +22,7 @@ import (
 	da "github.com/foundation-model-stack/multi-nic-cni/daemon/allocator"
 	"github.com/foundation-model-stack/multi-nic-cni/daemon/backend"
 	di "github.com/foundation-model-stack/multi-nic-cni/daemon/iface"
+	"github.com/foundation-model-stack/multi-nic-cni/daemon/ratelimiter"
 	dr "github.com/foundation-model-stack/multi-nic-cni/daemon/router"
 	ds "github.com/foundation-model-stack/multi-nic-cni/daemon/selector"
 	"k8s.io/client-go/kubernetes"
@@ -50,6 +51,9 @@ const (
 
 	NIC_SELECT_PATH = "/select"
 
+	ADD_RATE_LIMIT_PATH    = "/limit"
+	DELETE_RATE_LIMIT_PATH = "/delete-limit"
+
 	NODENAME_ENV = "K8S_NODENAME"
 )
 
@@ -68,6 +72,8 @@ func handleRequests() *mux.Router {
 	router.HandleFunc(NIC_SELECT_PATH, SelectNic).Methods("POST")
 	router.HandleFunc(ALLOCATE_PATH, Allocate).Methods("POST")
 	router.HandleFunc(DEALLOCATE_PATH, Deallocate).Methods("POST")
+	router.HandleFunc(ADD_RATE_LIMIT_PATH, LimitRate).Methods("POST")
+	router.HandleFunc(DELETE_RATE_LIMIT_PATH, RemoveRateLimit).Methods("POST")
 	return router
 }
 
@@ -230,6 +236,44 @@ func Deallocate(w http.ResponseWriter, r *http.Request) {
 		ipResponses = da.DeallocateIP(req)
 	}
 	json.NewEncoder(w).Encode(ipResponses)
+}
+
+func LimitRate(w http.ResponseWriter, r *http.Request) {
+	reqBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Fail to read: %v", err)
+	}
+	var req ratelimiter.RateLimitRequest
+	err = json.Unmarshal(reqBody, &req)
+	if err != nil {
+		log.Printf("Fail to unmarshal rate limit request: %v", err)
+	}
+	err = ratelimiter.LimitRate(req)
+	response := ratelimiter.RateLimitResponse{}
+	response.Succeed = err == nil
+	if err != nil {
+		response.Message = err.Error()
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+func RemoveRateLimit(w http.ResponseWriter, r *http.Request) {
+	reqBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Fail to read: %v", err)
+	}
+	var req ratelimiter.RateLimitRequest
+	err = json.Unmarshal(reqBody, &req)
+	if err != nil {
+		log.Printf("Fail to unmarshal rate limit request: %v", err)
+	}
+	err = ratelimiter.RemoveRateLimit(req)
+	response := ratelimiter.RateLimitResponse{}
+	response.Succeed = err == nil
+	if err != nil {
+		response.Message = err.Error()
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 func InitClient() *rest.Config {
