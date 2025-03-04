@@ -14,36 +14,31 @@ on:
         description: 'image tag'
         required: true
 
-env:
-  CATALOG_IMAGE: ghcr.io/${{ github.repository }}-catalog:${{ github.event.inputs.tag }}
+
 
 jobs:
   build-catalog:
     runs-on: ubuntu-latest
 
+    env:
+      CATALOG_IMG: ghcr.io/${{ github.repository }}-catalog:${{ github.event.inputs.tag }}
+      BUNDLE_IMGS: ${{ github.event.inputs.bundle_images }}
+
     steps:
-      - name: Checkout the repository
-        uses: actions/checkout@v3
-
-      - name: Set up Go
-        uses: actions/setup-go@v3
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
         with:
-          go-version: '1.22'
+          go-version: '1.22.0'
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            opm \
-            docker.io
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v1
+      - name: Login to Docker
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GH_USERNAME }}
+          password: ${{ secrets.GH_TOKEN }}
 
       - name: Build Operator Catalog
         run: |
-          mkdir -p /tmp/catalog
-          opm index add --bundles ${{ github.event.inputs.bundle_images }} --tag ${{ env.CATALOG_IMAGE }}
-
-      - name: Push Catalog to Docker Registry
-        run: |
-          docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
-          docker build -t ${{ env.CATALOG_IMAGE }} /tmp/catalog
-          docker push ${{ env.CATALOG_IMAGE }}
+          make catalog-build catalog-push
