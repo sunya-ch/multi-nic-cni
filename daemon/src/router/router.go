@@ -62,7 +62,7 @@ func ApplyL3Config(r *http.Request) RouteUpdateResponse {
 		res_msg += fmt.Sprintf("AddRoutesError %v;", err)
 		success = false
 	}
-	log.Printf("Apply L3 config %d; (%v)", tableID, success)
+	log.Printf("Apply L3 config %d; (%v) %s", tableID, success, res_msg)
 	response := RouteUpdateResponse{Success: success, Message: res_msg}
 	return response
 }
