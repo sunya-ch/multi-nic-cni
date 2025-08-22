@@ -1,5 +1,9 @@
 name: "Automated Version Update"
 
+permissions:
+  contents: write
+  pull-requests: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -32,7 +36,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PR_TOKEN }}
 
       - name: Configure Git
         run: |
@@ -72,7 +76,7 @@ jobs:
         if: steps.check_changes.outputs.changes == 'true'
         uses: peter-evans/create-pull-request@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PR_TOKEN }}
           branch: chore/update-version-${{ env.NEW_VERSION }}
           base: main
           delete-branch: true
