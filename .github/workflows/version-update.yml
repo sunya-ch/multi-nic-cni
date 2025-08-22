@@ -1,5 +1,7 @@
 name: "Automated Version Update"
 
+permissions: write-all
+
 on:
   workflow_dispatch:
     inputs:
