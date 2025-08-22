@@ -1,6 +1,6 @@
 /*
  * Copyright 2022- IBM Inc. All rights reserved
- * SPDX-License-Identifier: Apache2.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 package main
@@ -8,53 +8,24 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"testing"
+	"strings"
 
 	da "github.com/foundation-model-stack/multi-nic-cni/daemon/allocator"
-	backend "github.com/foundation-model-stack/multi-nic-cni/daemon/backend"
 	di "github.com/foundation-model-stack/multi-nic-cni/daemon/iface"
 	dr "github.com/foundation-model-stack/multi-nic-cni/daemon/router"
 	ds "github.com/foundation-model-stack/multi-nic-cni/daemon/selector"
-	"k8s.io/client-go/kubernetes"
-
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/install"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/discovery/cached/memory"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
-
-	"context"
-	"path/filepath"
-
 	"github.com/vishvananda/netlink"
-	"k8s.io/apimachinery/pkg/runtime"
 
 	"log"
-	"strings"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	"os"
 	//+kubebuilder:scaffold:imports
 )
 
-var dyn dynamic.Interface
-var dc *discovery.DiscoveryClient
 var requestRoute = dr.HostRoute{
 	Subnet:        "172.23.0.64/26",
 	NextHop:       "10.244.1.6",
@@ -100,10 +71,6 @@ const (
 	REQUEST_NUMBER = 2
 )
 
-var testEnv *envtest.Environment
-var scheme = runtime.NewScheme()
-var targetPod *v1.Pod
-
 var MASTER_INTERFACES []string = []string{"test-eth1", "test-eth2"}
 var MASTER_IPS = []string{"10.244.0.1/24", "10.244.1.1/24"}
 var MASTER_NETADDRESSES = []string{"10.244.0.0/24", "10.244.1.0/24"}
@@ -115,140 +82,61 @@ var GPU_BUS_MAP map[string]string = map[string]string{
 	"GPU-581b17ed-1c48-9b8c-6a9b-e2e6f99500dc": "0000:0c:05.0",
 }
 
-func TestAPIs(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "MultiNic CNI Suite")
-}
-
-func setTestLatestInterfaces() {
-	for index, master := range MASTER_INTERFACES {
-		netAddress := MASTER_NETADDRESSES[index]
-		vendor := MASTER_VENDORS[index]
-		product := MASTER_PRODUCTS[index]
-		pciAddress := MASTER_PCIADDRESS[index]
-		iface := di.InterfaceInfoType{
-			InterfaceName: master,
-			NetAddress:    netAddress,
-			Vendor:        vendor,
-			Product:       product,
-			PciAddress:    pciAddress,
+var _ = Describe("Join", func() {
+	It("empty join", func() {
+		requestIpamInfo := IPAMInfo{
+			HIFList: []di.InterfaceInfoType{},
 		}
-		di.SetInterfaceInfoCache(master, iface)
-	}
-	interfaceMap := di.GetInterfaceInfoCache()
-	Expect(len(interfaceMap)).To(Equal(2))
-}
+		body := MakePutRequest(requestIpamInfo, JOIN_PATH, http.HandlerFunc(Join))
+		Expect(strings.TrimSpace(string(body))).To(BeEquivalentTo(`""`))
+	})
 
-func replacePodUID(clientset *kubernetes.Clientset) {
-	var err error
-	// Get PodUID
-	targetPod, err = clientset.CoreV1().Pods(POD_NAMESPACE).Get(context.TODO(), POD_NAME, metav1.GetOptions{})
-	Expect(err).NotTo(HaveOccurred())
-	// Replace checkpoint file
-
-	// Read the file content
-	content, err := ioutil.ReadFile(EXAMPLE_CHECKPOINT)
-	Expect(err).NotTo(HaveOccurred())
-
-	// Perform text replacements
-	modifiedContent := strings.ReplaceAll(string(content), TO_REPLACE_POD_UID, string(targetPod.UID))
-
-	// Write the modified content back to the file
-	err = ioutil.WriteFile(EXAMPLE_CHECKPOINT, []byte(modifiedContent), 0644)
-	Expect(err).NotTo(HaveOccurred())
-}
-
-var _ = BeforeSuite(func() {
-	os.Setenv("TEST_MODE", "true")
-
-	// this env should be set by config.multinic when creating the daemonset
-	os.Setenv(NODENAME_ENV, FULL_HOST_NAME)
-	initHostName()
-	Expect(hostName).To(Equal(FULL_HOST_NAME))
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-	install.Install(scheme)
-
-	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "example", "crd")},
-		ErrorIfCRDPathMissing: true,
-		Scheme:                scheme,
-	}
-
-	err := apiextensionsv1.AddToScheme(scheme)
-	Expect(err).NotTo(HaveOccurred())
-	//+kubebuilder:scaffold:scheme
-
-	cfg, err := testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
-
-	dyn, err = dynamic.NewForConfig(cfg)
-	Expect(err).NotTo(HaveOccurred())
-	dc, err = discovery.NewDiscoveryClientForConfig(cfg)
-	Expect(err).NotTo(HaveOccurred())
-
-	da.IppoolHandler = backend.NewIPPoolHandler(cfg)
-	ds.MultinicnetHandler = backend.NewMultiNicNetworkHandler(cfg)
-	ds.NetAttachDefHandler = backend.NewNetAttachDefHandler(cfg)
-	ds.DeviceClassHandler = backend.NewDeviceClassHandler(cfg)
-	da.K8sClientset, _ = kubernetes.NewForConfig(cfg)
-	ds.K8sClientset, _ = kubernetes.NewForConfig(cfg)
-
-	deployExamples(EXAMPLE_RESOURCE_FOLDER, false)
-	addMasterInterfaces()
-	replacePodUID(ds.K8sClientset)
-}, 60)
-
-var _ = AfterSuite(func() {
-	By("tearing down the test environment")
-	deleteExamples(EXAMPLE_RESOURCE_FOLDER, true)
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
-	deleteMasterInterfaces()
+	It("empty greet ack", func() {
+		host := ""
+		body := MakePutRequest(host, GREET_PATH, http.HandlerFunc(GreetAck))
+		Expect(strings.TrimSpace(string(body))).To(BeEquivalentTo(`""`))
+	})
 })
 
 var _ = Describe("Test L3Config Add/Delete", func() {
 	It("apply/delete l3config", func() {
-		l3config, err := json.Marshal(requestL3Config)
-		Expect(err).NotTo(HaveOccurred())
-		req, err := http.NewRequest("PUT", ADD_L3CONFIG_PATH, bytes.NewBuffer(l3config))
-		Expect(err).NotTo(HaveOccurred())
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		res := httptest.NewRecorder()
-		handler := http.HandlerFunc(ApplyL3Config)
-		handler.ServeHTTP(res, req)
-		body, _ := ioutil.ReadAll(res.Body)
+		body := MakePutRequest(requestL3Config, ADD_L3CONFIG_PATH, http.HandlerFunc(ApplyL3Config))
 		var response dr.RouteUpdateResponse
 		json.Unmarshal(body, &response)
 		log.Printf("TestApplyL3Config: %v", response)
 		Expect(response.Success).To(Equal(true))
 
-		l3config, err = json.Marshal(requestL3ConfigForceDelete)
-		Expect(err).NotTo(HaveOccurred())
-		req, err = http.NewRequest("PUT", ADD_L3CONFIG_PATH, bytes.NewBuffer(l3config))
-		Expect(err).NotTo(HaveOccurred())
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		res = httptest.NewRecorder()
-		handler = http.HandlerFunc(ApplyL3Config)
-		handler.ServeHTTP(res, req)
-		body, _ = ioutil.ReadAll(res.Body)
+		body = MakePutRequest(requestL3ConfigForceDelete, ADD_L3CONFIG_PATH, http.HandlerFunc(ApplyL3Config))
 		var responseWithForce dr.RouteUpdateResponse
 		json.Unmarshal(body, &responseWithForce)
 		log.Printf("TestApplyL3ConfigForceDelete: %v", responseWithForce)
 		Expect(responseWithForce.Success).To(Equal(true))
 
-		l3config, err = json.Marshal(requestL3Config)
-		Expect(err).NotTo(HaveOccurred())
-		req, err = http.NewRequest("PUT", DELETE_L3CONFIG_PATH, bytes.NewBuffer(l3config))
-		Expect(err).NotTo(HaveOccurred())
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		res = httptest.NewRecorder()
-		handler = http.HandlerFunc(DeleteL3Config)
-		handler.ServeHTTP(res, req)
-		body, _ = ioutil.ReadAll(res.Body)
+		body = MakePutRequest(requestL3Config, DELETE_L3CONFIG_PATH, http.HandlerFunc(DeleteL3Config))
 		json.Unmarshal(body, &response)
 		log.Printf("TestDeleteL3Config: %v", response)
+		Expect(response.Success).To(Equal(true))
+	})
+})
+
+var _ = Describe("Test Route Add/Delete", func() {
+	It("add/delete route", func() {
+		// must use valid interface name
+		r := dr.HostRoute{
+			Subnet:        "192.168.0.100/32",
+			NextHop:       "0.0.0.0",
+			InterfaceName: getValidIface(),
+		}
+		By("Adding route")
+		body := MakePutRequest(r, ADD_ROUTE_PATH, http.HandlerFunc(AddRoute))
+		var response dr.RouteUpdateResponse
+		json.Unmarshal(body, &response)
+		Expect(response.Success).To(Equal(true))
+
+		By("Deleting route")
+		body = MakePutRequest(r, DELETE_ROUTE_PATH, http.HandlerFunc(DeleteRoute))
+		json.Unmarshal(body, &response)
+		log.Printf("TestDelete: %v", response)
 		Expect(response.Success).To(Equal(true))
 	})
 })
@@ -259,7 +147,7 @@ var _ = Describe("Test Get Interfaces", func() {
 		res := httptest.NewRecorder()
 		handler := http.HandlerFunc(GetInterface)
 		handler.ServeHTTP(res, req)
-		body, err := ioutil.ReadAll(res.Body)
+		body, err := io.ReadAll(res.Body)
 		Expect(err).NotTo(HaveOccurred())
 		var response []di.InterfaceInfoType
 		json.Unmarshal(body, &response)
@@ -276,15 +164,13 @@ var _ = Describe("Test Allocation", func() {
 			NetAttachDefName: DEF_NAME,
 			InterfaceNames:   MASTER_INTERFACES,
 		}
-		ipJson, err := json.Marshal(request)
-		Expect(err).NotTo(HaveOccurred())
 		// allocate
 		allocateHandler := http.HandlerFunc(Allocate)
-		response := MakeIPRequest(ipJson, ALLOCATE_PATH, allocateHandler, true)
+		response := MakeIPRequest(request, ALLOCATE_PATH, allocateHandler, true)
 		Expect(len(response)).To(Equal(len(MASTER_INTERFACES)))
 		//deallocate
 		deallocateHandler := http.HandlerFunc(Deallocate)
-		MakeIPRequest(ipJson, DEALLOCATE_PATH, deallocateHandler, false)
+		MakeIPRequest(request, DEALLOCATE_PATH, deallocateHandler, false)
 	})
 
 	It("anomaly allocate from begining", func() {
@@ -295,17 +181,15 @@ var _ = Describe("Test Allocation", func() {
 			NetAttachDefName: DEF_NAME,
 			InterfaceNames:   MASTER_INTERFACES,
 		}
-		ipJson, err := json.Marshal(request)
-		Expect(err).NotTo(HaveOccurred())
 		// allocate
 		allocateHandler := http.HandlerFunc(Allocate)
-		response1 := MakeIPRequest(ipJson, ALLOCATE_PATH, allocateHandler, true)
+		response1 := MakeIPRequest(request, ALLOCATE_PATH, allocateHandler, true)
 		Expect(len(response1)).To(Equal(len(MASTER_INTERFACES)))
 		//deallocate
 		deallocateHandler := http.HandlerFunc(Deallocate)
-		MakeIPRequest(ipJson, DEALLOCATE_PATH, deallocateHandler, false)
+		MakeIPRequest(request, DEALLOCATE_PATH, deallocateHandler, false)
 		//allocate again
-		response2 := MakeIPRequest(ipJson, ALLOCATE_PATH, allocateHandler, true)
+		response2 := MakeIPRequest(request, ALLOCATE_PATH, allocateHandler, true)
 		Expect(len(response2)).To(Equal(len(MASTER_INTERFACES)))
 		log.Printf("Response 1: %v\n", response1)
 		log.Printf("Response 2: %v\n", response2)
@@ -314,7 +198,7 @@ var _ = Describe("Test Allocation", func() {
 			Expect(response2[index].IPAddress).NotTo(Equal(resp1.IPAddress))
 		}
 		//deallocate
-		MakeIPRequest(ipJson, DEALLOCATE_PATH, deallocateHandler, false)
+		MakeIPRequest(request, DEALLOCATE_PATH, deallocateHandler, false)
 	})
 
 	It("anomaly allocate after some allocations", func() {
@@ -325,11 +209,9 @@ var _ = Describe("Test Allocation", func() {
 			NetAttachDefName: DEF_NAME,
 			InterfaceNames:   MASTER_INTERFACES,
 		}
-		ipJson1, err := json.Marshal(request1)
-		Expect(err).NotTo(HaveOccurred())
 		// allocate some
 		allocateHandler := http.HandlerFunc(Allocate)
-		response := MakeIPRequest(ipJson1, ALLOCATE_PATH, allocateHandler, true)
+		response := MakeIPRequest(request1, ALLOCATE_PATH, allocateHandler, true)
 		Expect(len(response)).To(Equal(len(MASTER_INTERFACES)))
 
 		request2 := da.IPRequest{
@@ -339,17 +221,15 @@ var _ = Describe("Test Allocation", func() {
 			NetAttachDefName: DEF_NAME,
 			InterfaceNames:   MASTER_INTERFACES,
 		}
-		ipJson2, err := json.Marshal(request2)
-		Expect(err).NotTo(HaveOccurred())
 		// allocate
 		allocateHandler = http.HandlerFunc(Allocate)
-		response1 := MakeIPRequest(ipJson2, ALLOCATE_PATH, allocateHandler, true)
+		response1 := MakeIPRequest(request2, ALLOCATE_PATH, allocateHandler, true)
 		Expect(len(response1)).To(Equal(len(MASTER_INTERFACES)))
 		//deallocate
 		deallocateHandler := http.HandlerFunc(Deallocate)
-		MakeIPRequest(ipJson2, DEALLOCATE_PATH, deallocateHandler, false)
+		MakeIPRequest(request2, DEALLOCATE_PATH, deallocateHandler, false)
 		//allocate again
-		response2 := MakeIPRequest(ipJson2, ALLOCATE_PATH, allocateHandler, true)
+		response2 := MakeIPRequest(request2, ALLOCATE_PATH, allocateHandler, true)
 		Expect(len(response2)).To(Equal(len(MASTER_INTERFACES)))
 		log.Printf("Response 1: %v\n", response1)
 		log.Printf("Response 2: %v\n", response2)
@@ -358,9 +238,9 @@ var _ = Describe("Test Allocation", func() {
 			Expect(response2[index].IPAddress).NotTo(Equal(resp1.IPAddress))
 		}
 		//deallocate
-		MakeIPRequest(ipJson1, DEALLOCATE_PATH, deallocateHandler, false)
+		MakeIPRequest(request1, DEALLOCATE_PATH, deallocateHandler, false)
 		//deallocate
-		MakeIPRequest(ipJson2, DEALLOCATE_PATH, deallocateHandler, false)
+		MakeIPRequest(request2, DEALLOCATE_PATH, deallocateHandler, false)
 	})
 
 })
@@ -378,18 +258,8 @@ var _ = Describe("Test NIC Select", func() {
 			NetAttachDefName: DEF_NAME,
 			MasterNetAddrs:   []string{},
 		}
-
-		jsonObj, err := json.Marshal(request)
-		Expect(err).NotTo(HaveOccurred())
-		req, err := http.NewRequest("PUT", NIC_SELECT_PATH, bytes.NewBuffer(jsonObj))
-		Expect(err).NotTo(HaveOccurred())
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		res := httptest.NewRecorder()
-		handler := http.HandlerFunc(SelectNic)
-		handler.ServeHTTP(res, req)
-		body, err := ioutil.ReadAll(res.Body)
-		Expect(err).NotTo(HaveOccurred())
-		err = json.Unmarshal(body, &response)
+		body := MakePutRequest(request, NIC_SELECT_PATH, http.HandlerFunc(SelectNic))
+		err := json.Unmarshal(body, &response)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(response.Masters)).To(Equal(len(MASTER_NETADDRESSES)))
 	})
@@ -407,18 +277,8 @@ var _ = Describe("Test NIC Select", func() {
 				NumOfInterfaces: 1,
 			},
 		}
-
-		jsonObj, err := json.Marshal(request)
-		Expect(err).NotTo(HaveOccurred())
-		req, err := http.NewRequest("PUT", NIC_SELECT_PATH, bytes.NewBuffer(jsonObj))
-		Expect(err).NotTo(HaveOccurred())
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		res := httptest.NewRecorder()
-		handler := http.HandlerFunc(SelectNic)
-		handler.ServeHTTP(res, req)
-		body, err := ioutil.ReadAll(res.Body)
-		Expect(err).NotTo(HaveOccurred())
-		err = json.Unmarshal(body, &response)
+		body := MakePutRequest(request, NIC_SELECT_PATH, http.HandlerFunc(SelectNic))
+		err := json.Unmarshal(body, &response)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(response.Masters)).To(Equal(1))
 	})
@@ -436,18 +296,8 @@ var _ = Describe("Test NIC Select", func() {
 				DevClass: "highspeed",
 			},
 		}
-
-		jsonObj, err := json.Marshal(request)
-		Expect(err).NotTo(HaveOccurred())
-		req, err := http.NewRequest("PUT", NIC_SELECT_PATH, bytes.NewBuffer(jsonObj))
-		Expect(err).NotTo(HaveOccurred())
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		res := httptest.NewRecorder()
-		handler := http.HandlerFunc(SelectNic)
-		handler.ServeHTTP(res, req)
-		body, err := ioutil.ReadAll(res.Body)
-		Expect(err).NotTo(HaveOccurred())
-		err = json.Unmarshal(body, &response)
+		body := MakePutRequest(request, NIC_SELECT_PATH, http.HandlerFunc(SelectNic))
+		err := json.Unmarshal(body, &response)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(response.Masters)).To(Equal(1))
 		Expect(response.Masters[0]).To(Equal(MASTER_INTERFACES[0]))
@@ -487,17 +337,8 @@ var _ = Describe("Test NIC Select", func() {
 				NumOfInterfaces: 1,
 			},
 		}
-		jsonObj, err := json.Marshal(request)
-		Expect(err).NotTo(HaveOccurred())
-		req, err := http.NewRequest("PUT", NIC_SELECT_PATH, bytes.NewBuffer(jsonObj))
-		Expect(err).NotTo(HaveOccurred())
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		res := httptest.NewRecorder()
-		handler := http.HandlerFunc(SelectNic)
-		handler.ServeHTTP(res, req)
-		body, err := ioutil.ReadAll(res.Body)
-		Expect(err).NotTo(HaveOccurred())
-		err = json.Unmarshal(body, &response)
+		body := MakePutRequest(request, NIC_SELECT_PATH, http.HandlerFunc(SelectNic))
+		err := json.Unmarshal(body, &response)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(response.Masters)).To(Equal(1))
 		// must select nic in numa 1
@@ -505,123 +346,58 @@ var _ = Describe("Test NIC Select", func() {
 	})
 })
 
-func deployExamples(folder string, ignoreErr bool) {
-	files, err := ioutil.ReadDir(folder)
-	Expect(err).NotTo(HaveOccurred())
-
-	for _, file := range files {
-		fileLocation := folder + "/" + file.Name()
-		obj, dr := getDR(fileLocation, ignoreErr)
-		if dr == nil {
-			fmt.Println("No DR, deploy")
-			continue
-		}
-		_, err = dr.Create(context.TODO(), obj, metav1.CreateOptions{})
-		fmt.Printf("Deploy %s (%v): %v\n", fileLocation, ignoreErr, err)
-		if !ignoreErr {
-			Expect(err).NotTo(HaveOccurred())
-		}
-	}
-
-}
-
-func getDR(fileName string, ignoreErr bool) (*unstructured.Unstructured, dynamic.ResourceInterface) {
-	bodyBytes, err := ioutil.ReadFile(fileName)
-	if ignoreErr && err != nil {
-		return nil, nil
-	}
-	Expect(err).NotTo(HaveOccurred())
-	obj := &unstructured.Unstructured{}
-	dec := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
-	_, gvk, err := dec.Decode(bodyBytes, nil, obj)
-	if ignoreErr && err != nil {
-		return nil, nil
-	}
-	Expect(err).NotTo(HaveOccurred())
-	return obj, getResourceInterface(gvk, obj.GetNamespace(), ignoreErr)
-}
-
-func getResourceInterface(gvk *schema.GroupVersionKind, ns string, ignoreErr bool) dynamic.ResourceInterface {
-	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc))
-	mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if !ignoreErr {
-		Expect(err).NotTo(HaveOccurred())
-	}
-	if err != nil {
-		return nil
-	}
-
-	var dr dynamic.ResourceInterface
-	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
-		dr = dyn.Resource(mapping.Resource).Namespace(ns)
-	} else {
-		dr = dyn.Resource(mapping.Resource)
-	}
-	return dr
-}
-
-func deleteExamples(folder string, ignoreErr bool) {
-	files, err := ioutil.ReadDir(folder)
-	Expect(err).NotTo(HaveOccurred())
-
-	for _, file := range files {
-		fileLocation := folder + "/" + file.Name()
-		fmt.Printf("Delete %s (%v)\n", fileLocation, ignoreErr)
-		obj, dr := getDR(fileLocation, ignoreErr)
-		if dr == nil {
-			fmt.Println("No DR, delete")
-			continue
-		}
-		err = dr.Delete(context.TODO(), obj.GetName(), metav1.DeleteOptions{})
-		if !ignoreErr {
-			Expect(err).NotTo(HaveOccurred())
-		}
-	}
-}
-
-func addMasterInterfaces() {
-	// Add master
+func setTestLatestInterfaces() {
 	for index, master := range MASTER_INTERFACES {
-		linkAttrs := netlink.LinkAttrs{
-			Name: master,
+		netAddress := MASTER_NETADDRESSES[index]
+		vendor := MASTER_VENDORS[index]
+		product := MASTER_PRODUCTS[index]
+		pciAddress := MASTER_PCIADDRESS[index]
+		iface := di.InterfaceInfoType{
+			InterfaceName: master,
+			NetAddress:    netAddress,
+			Vendor:        vendor,
+			Product:       product,
+			PciAddress:    pciAddress,
 		}
-		err := netlink.LinkAdd(&netlink.Dummy{
-			linkAttrs,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		masterLink, err := netlink.LinkByName(master)
-		Expect(err).NotTo(HaveOccurred())
-
-		addr, _ := netlink.ParseAddr(MASTER_IPS[index])
-		netlink.AddrAdd(masterLink, addr)
-		Expect(err).NotTo(HaveOccurred())
-		err = netlink.LinkSetUp(masterLink)
-		Expect(err).NotTo(HaveOccurred())
+		di.SetInterfaceInfoCache(master, iface)
 	}
+	interfaceMap := di.GetInterfaceInfoCache()
+	Expect(len(interfaceMap)).To(Equal(2))
 }
 
-func deleteMasterInterfaces() {
-	// Add master
-	for _, master := range MASTER_INTERFACES {
-		masterLink, err := netlink.LinkByName(master)
-		Expect(err).NotTo(HaveOccurred())
-		netlink.LinkSetDown(masterLink)
-		netlink.LinkDel(masterLink)
-	}
-}
-
-func MakeIPRequest(ipJson []byte, path string, handler http.HandlerFunc, shouldResponse bool) []da.IPResponse {
-	var response []da.IPResponse
-	req, err := http.NewRequest("PUT", path, bytes.NewBuffer(ipJson))
+func MakePutRequest(obj any, path string, handler http.HandlerFunc) []byte {
+	encoded, err := json.Marshal(obj)
+	Expect(err).NotTo(HaveOccurred())
+	req, err := http.NewRequest("PUT", path, bytes.NewBuffer(encoded))
 	Expect(err).NotTo(HaveOccurred())
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	Expect(err).NotTo(HaveOccurred())
+	return body
+}
+
+func MakeIPRequest(requestIP da.IPRequest, path string, handler http.HandlerFunc, shouldResponse bool) []da.IPResponse {
+	var response []da.IPResponse
+	body := MakePutRequest(requestIP, path, handler)
 	if shouldResponse {
-		err = json.Unmarshal(body, &response)
+		err := json.Unmarshal(body, &response)
 		Expect(err).NotTo(HaveOccurred())
 	}
 	return response
+}
+
+func getValidIface() string {
+	links, err := netlink.LinkList()
+	Expect(err).NotTo(HaveOccurred())
+	notFound := true
+	for _, link := range links {
+		devName := link.Attrs().Name
+		if link.Type() == "device" {
+			return devName
+		}
+	}
+	Expect(notFound).To(BeFalse())
+	return ""
 }

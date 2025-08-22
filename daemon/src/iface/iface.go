@@ -1,6 +1,6 @@
 /*
  * Copyright 2022- IBM Inc. All rights reserved
- * SPDX-License-Identifier: Apache2.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 package iface
@@ -23,6 +23,10 @@ type InterfaceInfoType struct {
 	Product       string `json:"product"`
 	PciAddress    string `json:"pciAddress"`
 }
+
+const (
+	zombiePrefix = "net1"
+)
 
 var interfaceInfoCache = InitSafeCache()
 
@@ -121,9 +125,12 @@ func GetInterfaces() []InterfaceInfoType {
 	if err != nil {
 		log.Printf("cannot get default subnet: %v", err)
 	}
-
 	for _, netDevice := range netDevices {
 		devName := netDevice.Name
+		if strings.HasPrefix(devName, zombiePrefix) {
+			log.Printf("found zombie interface name %s, skip", devName)
+			continue
+		}
 		devLink, err := netlink.LinkByName(devName)
 		if err != nil {
 			log.Printf("cannot find link %s: %v", devName, err)

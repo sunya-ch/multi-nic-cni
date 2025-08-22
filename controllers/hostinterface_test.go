@@ -1,6 +1,6 @@
 /*
  * Copyright 2022- IBM Inc. All rights reserved
- * SPDX-License-Identifier: Apache2.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 package controllers_test
@@ -13,6 +13,8 @@ import (
 )
 
 var _ = Describe("Host Interface Test", func() {
+	controllers.ConfigReady = true
+
 	Context("UpdateNewInterfaces - original with a single device", func() {
 		origInfos := []multinicv1.InterfaceInfoType{
 			genInterfaceInfo("eth1", "10.0.0.0/24"),

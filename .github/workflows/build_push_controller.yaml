@@ -15,7 +15,7 @@ on:
       - ./Makefile
 
 env:
-  VERSION: "1.2.7"
+  VERSION: "1.2.9"
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   DAEMON_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: '1.22.0'
+          go-version: '1.24.1'
       - name: set ARCH and OD
         run: |
             echo "ARCH=$(case $(uname -m) in x86_64) echo -n amd64 ;; aarch64) echo -n arm64 ;; *) echo -n $(uname -m) ;; esac)" >> $GITHUB_ENV
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: '1.22.0'
+          go-version: '1.24.1'
       - name: Tidy
         run: |
           go mod tidy

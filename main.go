@@ -1,6 +1,6 @@
 /*
  * Copyright 2022- IBM Inc. All rights reserved
- * SPDX-License-Identifier: Apache2.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 package main
@@ -136,7 +136,7 @@ func main() {
 
 	hostInterfaceHandler := controllers.NewHostInterfaceHandler(config, mgr.GetClient())
 
-	defHandler, err := plugin.GetNetAttachDefHandler(config)
+	defHandler, err := plugin.GetNetAttachDefHandler(config, scheme)
 	if err != nil {
 		vars.SetupLog.Error(err, "unable to create NetworkAttachmentdefinition handler")
 		os.Exit(1)

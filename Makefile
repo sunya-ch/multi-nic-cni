@@ -1,6 +1,6 @@
 #
 # Copyright 2022- IBM Inc. All rights reserved
-# SPDX-License-Identifier: Apache2.0
+# SPDX-License-Identifier: Apache-2.0
 #
 include daemon/Makefile
 
@@ -14,9 +14,9 @@ export IMAGE_REGISTRY ?= ghcr.io/foundation-model-stack
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
 # VERSION ?= 0.0.1
-VERSION ?= 1.2.7
-export CHANNELS = "alpha-1.2"
-export DEFAULT_CHANNEL = "alpha-1.2"
+VERSION ?= 1.2.9
+export CHANNELS = "alpha"
+export DEFAULT_CHANNEL = "alpha"
 
 # CHANNELS define the bundle channels used in the bundle.
 # Add a new line here if you would like to change its default config. (E.g CHANNELS = "preview,fast,stable")
@@ -118,7 +118,7 @@ GOLANGCI_LINT_INSTALL_SCRIPT ?= 'https://raw.githubusercontent.com/golangci/gola
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ### Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT):$(DEV_BIN_DIR)
-	test -s $(GOLANGCI_LINT) || { curl -sSfL $(GOLANGCI_LINT_INSTALL_SCRIPT) | sh -s -- -b $(DEV_BIN_DIR)  v1.54.2; }
+	test -s $(GOLANGCI_LINT) || { curl -sSfL $(GOLANGCI_LINT_INSTALL_SCRIPT) | sh -s -- -b $(DEV_BIN_DIR)  v1.64.8; }
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
@@ -148,6 +148,7 @@ lint: tidy fmt vet golangci-lint ## Run the lint check
 pr: lint test yaml ## Run targets required for PR
 
 ##@ Test
+ARCH                = $(shell go env GOARCH)
 TEST_BIN_DIR		= $(BASE_DIR)/tools/testbin
 TEST_RESULT_DIR 	= $(BASE_DIR)/testing
 ENVTEST				?= $(TEST_BIN_DIR)/setup-envtest
@@ -163,7 +164,7 @@ $(TEST_RESULT_DIR):
 .PHONY: ginkgo
 ginkgo: $(GINKGO) ## Download and install ginkgo locally if necessary.
 $(GINKGO): $(TEST_BIN_DIR)
-	$(call go-get-tool,$(TEST_BIN_DIR),$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo@v2.20.1)
+	$(call go-get-tool,$(TEST_BIN_DIR),$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo@v2.21.0)
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download and install setup-envtest locally if necessary.
@@ -307,9 +308,9 @@ catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
 
 test-daemon:
-	$(DOCKER) build -t daemon-test:latest -f ./daemon/dockerfiles/Dockerfile.multi-nicd-test .
-	$(DOCKER) run -i --privileged daemon-test /bin/bash -c "cd /usr/local/build/cni&&make test"
-	$(DOCKER) run -i --privileged daemon-test /bin/bash -c "cd /usr/local/build/daemon/src&&make test-verbose"
+	$(DOCKER) build --platform linux/$(ARCH) -t daemon-test:latest -f ./daemon/dockerfiles/Dockerfile.multi-nicd-test .
+	$(DOCKER) run --platform linux/$(ARCH) -i --rm --privileged daemon-test /bin/bash -c "cd /usr/local/build/cni&&make test"
+	$(DOCKER) run --platform linux/$(ARCH) -i --rm -v ./testing:/usr/local/build/daemon/src/testing --privileged daemon-test /bin/bash -c "cd /usr/local/build/daemon/src&&make test"
 
 build-push-kbuilder-base:
 	$(DOCKER) build -t $(IMAGE_TAG_BASE)-kbuilder:v$(VERSION) -f ./daemon/dockerfiles/Dockerfile.kbuilder .
@@ -335,7 +336,7 @@ else
 endif
 
 # update the version in Makefile, kustomization.yaml, config.yaml, and GitHub workflows
-# use VERSION as an arg to the set_version target: make set_version VERSION=x.x.x
+# use VERSION as an arg to the set_version target: make set_version VERSION=x.y.z
 .PHONY: set_version
 set_version:
 	@echo "VERSION: $(VERSION)"
@@ -345,7 +346,9 @@ set_version:
 	@$(SED_CMD) -i 's/\(image: ghcr.io\/foundation-model-stack\/multi-nic-cni-daemon:v\).*/\1$(VERSION)/' config/samples/config.yaml
 	@$(SED_CMD) -i 's/\(IMAGE_VERSION: \).*/\1\"$(VERSION)\"/' .github/workflows/*.yaml
 	@$(SED_CMD) -i 's/\(VERSION: \).*/\1\"$(VERSION)\"/' .github/workflows/build_push_controller.yaml
+	@$(SED_CMD) -i 's/\(VERSION: \)[0-9.]\+\(-pr-.*\)/\1$(VERSION)\2/' .github/workflows/build_push_pr.yaml
 	@$(SED_CMD) -i 's/multi-nic-cni-bundle:v[0-9.]\+/multi-nic-cni-bundle:v$(VERSION)/' README.md
 	@$(SED_CMD) -i 's/multi-nic-cni-concheck:v[0-9.]\+/multi-nic-cni-concheck:v$(VERSION)/' connection-check/concheck.yaml
-	@$(SED_CMD) -i 's/multi-nic-cni-daemon:v[0-9.]\+/multi-nic-cni-daemon:v$(VERSION)/' controllers/vars/vars.go
+	@$(SED_CMD) -i 's/multi-nic-cni-daemon:v[0-9.]\+/multi-nic-cni-daemon:v$(VERSION)/' internal/vars/vars.go
 	@$(SED_CMD) -i 's/-daemon:v[0-9.]\+/-daemon:v$(VERSION)/' daemon/Makefile
+	@$(SED_CMD) -i 's/\(FROM ghcr.io.*multi-nic-cni-kbuilder:v\)[0-9.]\+/\1$(VERSION)/' daemon/dockerfiles/Dockerfile.multi-nicd-test

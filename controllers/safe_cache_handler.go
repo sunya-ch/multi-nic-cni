@@ -1,6 +1,6 @@
 /*
  * Copyright 2022- IBM Inc. All rights reserved
- * SPDX-License-Identifier: Apache2.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 package controllers
@@ -61,4 +61,10 @@ func (s *SafeCache) GetSize() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.cache)
+}
+
+func (s *SafeCache) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cache = make(map[string]interface{})
 }

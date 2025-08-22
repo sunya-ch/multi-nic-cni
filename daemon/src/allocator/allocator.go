@@ -1,6 +1,6 @@
 /*
  * Copyright 2022- IBM Inc. All rights reserved
- * SPDX-License-Identifier: Apache2.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 package allocator
@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +33,39 @@ const (
 	DEFNAME_LABEL_NAME  = "netname"
 )
 
+var (
+	NetClassDir = "/sys/class/net"
+)
+
+// isVF detects VF
+func isVF(interfaceName string) bool {
+	physfnPath := filepath.Join(NetClassDir, interfaceName, "device", "physfn")
+	_, err := os.Stat(physfnPath)
+	return err == nil
+}
+
+// getPFInterfaceName gets PF name from VF
+func getPFInterfaceName(vfInterfaceName string) string {
+	physfnNetPath := filepath.Join(NetClassDir, vfInterfaceName, "device", "physfn", "net")
+
+	// Read the directory to find the PF interface name
+	entries, err := os.ReadDir(physfnNetPath)
+	if err != nil {
+		log.Printf("Failed to read PF net directory for VF %s: %v", vfInterfaceName, err)
+		return vfInterfaceName // Return original name if we can't determine PF
+	}
+
+	if len(entries) == 0 {
+		log.Printf("No PF interface found for VF %s", vfInterfaceName)
+		return vfInterfaceName // Return original name if no PF found
+	}
+
+	// In standard SR-IOV, each VF belongs to exactly one PF
+	pfInterfaceName := entries[0].Name()
+	log.Printf("VF %s maps to PF %s", vfInterfaceName, pfInterfaceName)
+	return pfInterfaceName
+}
+
 var allocatorLock sync.Mutex
 
 var K8sClientset *kubernetes.Clientset
@@ -44,6 +79,11 @@ type IPValue struct {
 type allocateRecord struct {
 	time.Time
 	LastOffset int
+}
+
+type allocation struct {
+	backend.Allocation
+	interfaceName string
 }
 
 func (r *allocateRecord) Expired() bool {
@@ -109,6 +149,10 @@ func getIPValue(address string) IPValue {
 	return IPValue{Address: address, Value: addrToValue(ip)}
 }
 
+// getAddressByIndex returns IP addres in string according to CIDR and index.
+// 1. getIPValue from CIDR for IPValue (with int value)
+// 2. add index to value in int
+// 3. convert int back to string with valueToAddrStr
 func getAddressByIndex(cidr string, index int) string {
 	startIPInIpValue := getIPValue(cidr)
 	addressByIndex := startIPInIpValue.Value + int64(index)
@@ -120,10 +164,7 @@ type ExcludeRange struct {
 	MaxIndex int
 }
 
-func (r ExcludeRange) Contains(index int) bool {
-	return index >= r.MinIndex && index <= r.MaxIndex
-}
-
+// getExcludeRanges returns ExcludeRange with min/max indexes within given CIDR.
 func getExcludeRanges(cidr string, excludes []string) []ExcludeRange {
 	exludeRanges := []ExcludeRange{}
 	startIPInIpValue := getIPValue(cidr)
@@ -146,7 +187,6 @@ func getExcludeRanges(cidr string, excludes []string) []ExcludeRange {
 				MaxIndex: excludeStartIndex + maxIndex,
 			}
 			exludeRanges = append(exludeRanges, r)
-
 		}
 	}
 	return exludeRanges
@@ -191,10 +231,24 @@ func AllocateIP(req IPRequest) []IPResponse {
 		LabelSelector: labels.SelectorFromSet(labelMap).String(),
 	}
 	ippoolSpecMap, err := IppoolHandler.ListIPPool(listOptions)
-	if err != nil {
+	if err != nil || len(ippoolSpecMap) == 0 {
+		log.Printf("Unable to proceed allocation without ippool or with error, ippools: %v, err: %v", ippoolSpecMap, err)
+		allocatorLock.Unlock()
 		return responses
 	}
+	newAllocations := allocateIP(podName, podNamespace, interfaceNames, offset, ippoolSpecMap)
+	responses = applyNewAllocations(ippoolSpecMap, newAllocations)
+	allocatorLock.Unlock()
 
+	elapsed := time.Since(startAllocate)
+	log.Println(fmt.Sprintf("Allocate elapsed: %d us", int64(elapsed/time.Microsecond)))
+	return responses
+}
+
+func allocateIP(podName, podNamespace string, interfaceNames []string, offset int,
+	ippoolSpecMap map[string]backend.IPPoolType) map[string]allocation {
+
+	newAllocations := make(map[string]allocation)
 	for ippoolName, _ := range ippoolSpecMap {
 		if len(interfaceNames) == 0 {
 			// no more interfaces to allocate
@@ -203,9 +257,25 @@ func AllocateIP(req IPRequest) []IPResponse {
 		}
 		spec := ippoolSpecMap[ippoolName]
 		deleteIndex := -1
+		var originalInterfaceName string
 		for deleteIndex = 0; deleteIndex < len(interfaceNames); deleteIndex++ {
 			interfaceName := interfaceNames[deleteIndex]
+			matchFound := false
+
+			// Direct interface name match
 			if spec.InterfaceName == interfaceName {
+				matchFound = true
+				originalInterfaceName = interfaceName
+			} else if isVF(interfaceName) {
+				// Check if the interface is a VF and map it to its PF for comparison
+				pfInterfaceName := getPFInterfaceName(interfaceName)
+				if spec.InterfaceName == pfInterfaceName {
+					matchFound = true
+					originalInterfaceName = interfaceName // Use the original VF name
+				}
+			}
+
+			if matchFound {
 				break
 			}
 		}
@@ -253,39 +323,49 @@ func AllocateIP(req IPRequest) []IPResponse {
 				Address:   nextAddress,
 			}
 			log.Println(newAllocation)
-			toInsertIndex := -1
-			for allocationIndex, allocation := range allocations {
-				if allocation.Index > newAllocation.Index {
-					toInsertIndex = allocationIndex
-				}
-			}
-			if toInsertIndex == -1 {
-				allocations = append(allocations, newAllocation)
-			} else {
-				appendedAllocation := append(allocations[0:toInsertIndex], newAllocation)
-				allocations = append(appendedAllocation, allocations[toInsertIndex:]...)
-			}
-
-			_, err = IppoolHandler.PatchIPPool(ippoolName, allocations)
-			if err == nil {
-				response := IPResponse{
-					InterfaceName: spec.InterfaceName,
-					IPAddress:     nextAddress,
-					VLANBlockSize: strings.Split(spec.VlanCIDR, "/")[1],
-				}
-				log.Println(fmt.Sprintf("Append response %v (ip=%s)", response, nextAddress))
-				responses = append(responses, response)
-			} else {
-				log.Println(fmt.Sprintf("Cannot patch IPPool: %v", err))
+			newAllocations[ippoolName] = allocation{
+				Allocation:    newAllocation,
+				interfaceName: originalInterfaceName,
 			}
 		} else {
 			log.Println(fmt.Sprintf("Cannot get NextAddress for %s", podCIDR))
 		}
 	}
-	allocatorLock.Unlock()
+	return newAllocations
+}
 
-	elapsed := time.Since(startAllocate)
-	log.Println(fmt.Sprintf("Allocate elapsed: %d us", int64(elapsed/time.Microsecond)))
+func applyNewAllocations(ippoolSpecMap map[string]backend.IPPoolType, newAllocations map[string]allocation) []IPResponse {
+	var responses []IPResponse
+	for ippoolName, newAllocation := range newAllocations {
+		spec := ippoolSpecMap[ippoolName]
+		allocations := spec.Allocations
+
+		toInsertIndex := -1
+		for allocationIndex, allocation := range allocations {
+			if allocation.Index > newAllocation.Index {
+				toInsertIndex = allocationIndex
+			}
+		}
+		if toInsertIndex == -1 {
+			allocations = append(allocations, newAllocation.Allocation)
+		} else {
+			appendedAllocation := append(allocations[0:toInsertIndex], newAllocation.Allocation)
+			allocations = append(appendedAllocation, allocations[toInsertIndex:]...)
+		}
+
+		_, err := IppoolHandler.PatchIPPool(ippoolName, allocations)
+		if err == nil {
+			response := IPResponse{
+				InterfaceName: newAllocation.interfaceName, // Use original VF name instead of PF name
+				IPAddress:     newAllocation.Address,
+				VLANBlockSize: strings.Split(spec.VlanCIDR, "/")[1],
+			}
+			log.Println(fmt.Sprintf("Append response %v (ip=%s)", response, newAllocation.Address))
+			responses = append(responses, response)
+		} else {
+			log.Println(fmt.Sprintf("Cannot patch IPPool: %v", err))
+		}
+	}
 	return responses
 }
 
@@ -326,6 +406,7 @@ func DeallocateIP(req IPRequest) []IPResponse {
 	podNamespace := req.PodNamespace
 	defName := req.NetAttachDefName
 	hostName := req.HostName
+	interfaceNames := req.InterfaceNames
 
 	// set first record
 	if _, ok := deallocateHistory[podName]; !ok {
@@ -359,8 +440,21 @@ func DeallocateIP(req IPRequest) []IPResponse {
 					if err != nil {
 						log.Println(fmt.Sprintf("Cannot patch IPPool: %v", err))
 					}
+					// Map PF interface name back to VF if needed
+					responseInterfaceName := spec.InterfaceName // Default to PF name
+					for _, vfInterfaceName := range interfaceNames {
+						if isVF(vfInterfaceName) {
+							pfInterfaceName := getPFInterfaceName(vfInterfaceName)
+							if pfInterfaceName == spec.InterfaceName {
+								responseInterfaceName = vfInterfaceName // Use VF name in response
+								log.Printf("Deallocate: mapping PF %s back to VF %s", spec.InterfaceName, vfInterfaceName)
+								break
+							}
+						}
+					}
+
 					response := IPResponse{
-						InterfaceName: spec.InterfaceName,
+						InterfaceName: responseInterfaceName, // Use VF name if available, otherwise PF name
 						IPAddress:     allocation.Address,
 						VLANBlockSize: strings.Split(spec.VlanCIDR, "/")[1],
 					}

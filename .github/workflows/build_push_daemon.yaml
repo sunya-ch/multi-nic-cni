@@ -10,7 +10,7 @@ on:
       - Makefile
       
 env:
-  IMAGE_VERSION: "1.2.7"
+  IMAGE_VERSION: "1.2.9"
   DAEMON_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: '1.23.0'
+          go-version: '1.24.1'
       - name: Set up Docker
         uses: docker/setup-buildx-action@v1
       - name: Update CNI

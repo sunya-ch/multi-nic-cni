@@ -1,19 +1,19 @@
 #
 # Copyright 2022- IBM Inc. All rights reserved
-# SPDX-License-Identifier: Apache2.0
+# SPDX-License-Identifier: Apache-2.0
 #
 export DAEMON_REGISTRY ?= ghcr.io/foundation-model-stack
 
 # DAEMON_IMG defines the image:tag used for daemon
 IMAGE_TAG_BASE = $(DAEMON_REGISTRY)/multi-nic-cni
-DAEMON_IMG ?= $(IMAGE_TAG_BASE)-daemon:v1.2.7
+DAEMON_IMG ?= $(IMAGE_TAG_BASE)-daemon:v1.2.9
 
 
 test-verbose:
 	$(MAKE) -C src test-verbose
 
-test-env:
-	$(MAKE) -C src test-env
+test:
+	$(MAKE) -C src test
 
 update-cni-local:
 ifeq ($(shell uname), Linux)

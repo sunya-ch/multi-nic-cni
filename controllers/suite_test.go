@@ -1,6 +1,6 @@
 /*
  * Copyright 2022- IBM Inc. All rights reserved
- * SPDX-License-Identifier: Apache2.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /*
@@ -123,7 +123,7 @@ var _ = BeforeSuite(func() {
 
 	hostInterfaceHandler := NewHostInterfaceHandler(cfg, mgr.GetClient())
 
-	defHandler, err := plugin.GetNetAttachDefHandler(cfg)
+	defHandler, err := plugin.GetNetAttachDefHandler(cfg, scheme.Scheme)
 	Expect(err).ToNot(HaveOccurred())
 
 	clientset, err := kubernetes.NewForConfig(cfg)
@@ -259,7 +259,6 @@ var _ = BeforeSuite(func() {
 		},
 	}
 
-	plugin.SRIOV_MANIFEST_PATH = "../internal/plugin/template/cni-config"
 	Expect(K8sClient.Create(context.TODO(), &sriovNamespace)).Should(Succeed())
 	err = SriovPlugin.Init(cfg)
 	Expect(err).ToNot(HaveOccurred())

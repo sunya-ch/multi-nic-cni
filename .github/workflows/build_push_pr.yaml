@@ -2,6 +2,8 @@ name: PR build
 
 on:
   pull_request_target:
+    branches:
+      - main
     types:
       - opened
       - synchronize
@@ -20,7 +22,7 @@ on:
       - cni/**
 
 env:
-  VERSION: 1.2.7-pr-${{ github.event.pull_request.number }}
+  VERSION: 1.2.9-pr-${{ github.event.pull_request.number }}
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   DAEMON_REGISTRY: ghcr.io/${{ github.repository_owner }}
 
@@ -36,7 +38,7 @@ jobs:
           repository: ${{github.event.pull_request.head.repo.full_name}}
       - uses: actions/setup-go@v2
         with:
-          go-version: '1.22.0'
+          go-version: '1.24.1'
       - name: Tidy
         run: |
           go mod tidy
@@ -70,7 +72,7 @@ jobs:
           repository: ${{github.event.pull_request.head.repo.full_name}}
       - uses: actions/setup-go@v2
         with:
-          go-version: '1.22.0'
+          go-version: '1.24.1'
       - name: set ARCH and OD
         run: |
             echo "ARCH=$(case $(uname -m) in x86_64) echo -n amd64 ;; aarch64) echo -n arm64 ;; *) echo -n $(uname -m) ;; esac)" >> $GITHUB_ENV
