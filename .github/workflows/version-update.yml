@@ -15,7 +15,6 @@ on:
 
 env:
   NEW_VERSION: ${{ github.event.inputs.version }}
-  BRANCH_NAME: chore/update-version-${{ env.NEW_VERSION }}
 
 jobs:
   update-version:
@@ -74,7 +73,7 @@ jobs:
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ env.BRANCH_NAME }}
+          branch: chore/update-version-${{ env.NEW_VERSION }}
           base: main
           delete-branch: true
           title: "chore: update version to v${{ env.NEW_VERSION }}"
