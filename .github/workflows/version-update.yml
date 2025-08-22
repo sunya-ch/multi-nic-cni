@@ -15,6 +15,7 @@ on:
 
 env:
   NEW_VERSION: ${{ github.event.inputs.version }}
+  BRANCH_NAME: chore/update-version-${{ env.NEW_VERSION }}
 
 jobs:
   update-version:
