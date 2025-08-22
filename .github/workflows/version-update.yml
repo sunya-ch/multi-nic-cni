@@ -75,7 +75,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ env.BRANCH_NAME }}
           base: main
-          maintainer-can-modify: true
           delete-branch: true
           title: "chore: update version to v${{ env.NEW_VERSION }}"
           body: |
