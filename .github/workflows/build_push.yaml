@@ -13,9 +13,13 @@ on:
       go_version:
         description: 'go version'
         required: true
+      sdk_version:
+        description: 'operator-sdk version'
+        required: true
 
 env:
   GO_VERSION: ${{ github.event.inputs.go_version }}
+  SDK_VERSION: ${{ github.event.inputs.sdk_version }}
   VERSION: ${{ github.event.inputs.version }}
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   DAEMON_REGISTRY: ghcr.io/${{ github.repository_owner }}
@@ -71,7 +75,7 @@ jobs:
         run: |
             echo "ARCH=$(case $(uname -m) in x86_64) echo -n amd64 ;; aarch64) echo -n arm64 ;; *) echo -n $(uname -m) ;; esac)" >> $GITHUB_ENV
             echo "OS=$(uname | awk '{print tolower($0)}')" >> $GITHUB_ENV
-            echo "OPERATOR_SDK_DL_URL=https://github.com/operator-framework/operator-sdk/releases/download/v1.39.2" >> $GITHUB_ENV
+            echo "OPERATOR_SDK_DL_URL=https://github.com/operator-framework/operator-sdk/releases/download/v${{ env.SDK_VERSION }}" >> $GITHUB_ENV
       - name: download operator-sdk
         run: curl -LO ${{ env.OPERATOR_SDK_DL_URL }}/operator-sdk_${{ env.OS }}_${{ env.ARCH }}
       - name: move operator-sdk to binary path
